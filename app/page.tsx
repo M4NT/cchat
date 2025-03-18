@@ -30,6 +30,8 @@ import {
   Tag,
   UserPlus,
   Download,
+  Menu,
+  ChevronLeft,
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import ChatMessage from "@/components/chat-message"
@@ -104,59 +106,67 @@ interface Chat {
 }
 
 export default function ChatApp() {
-  const [socket, setSocket] = useState<Socket | null>(null)
+  const { toast } = useToast()
+  const router = useRouter()
   const [user, setUser] = useState<any>(null)
-  const [messages, setMessages] = useState<any[]>([])
-  const [message, setMessage] = useState("")
-  const [chats, setChats] = useState<any[]>([])
   const [activeChat, setActiveChat] = useState<any>(null)
-  const [isRecording, setIsRecording] = useState(false)
-  const [isUploading, setIsUploading] = useState(false)
-  const [isSearching, setIsSearching] = useState(false)
-  const [isCreatingGroup, setIsCreatingGroup] = useState(false)
-  const [isEditingProfile, setIsEditingProfile] = useState(false)
-  const [isEditingGroup, setIsEditingGroup] = useState(false)
-  const [isManagingBackup, setIsManagingBackup] = useState(false)
-  const [isTranslating, setIsTranslating] = useState(false)
-  const [isCreatingPoll, setIsCreatingPoll] = useState(false)
-  const [isViewingHistory, setIsViewingHistory] = useState(false)
-  const [messageToTranslate, setMessageToTranslate] = useState<any>(null)
-  const [replyingTo, setReplyingTo] = useState<any>(null)
-  const [quotingMessage, setQuotingMessage] = useState<any>(null)
-  const [mutedChats, setMutedChats] = useState<string[]>([])
-  const [pinnedMessages, setPinnedMessages] = useState<any[]>([])
-  const [scheduledMessage, setScheduledMessage] = useState<{
-    content: string
-    date: Date | null
-  }>({
-    content: "",
-    date: null,
-  })
-  const [isSchedulingMessage, setIsSchedulingMessage] = useState(false)
-  const [isShareLocation, setIsShareLocation] = useState(false)
-  const [currentLocation, setCurrentLocation] = useState<{
-    latitude: number
-    longitude: number
-    address?: string
-  } | null>(null)
+  const [chats, setChats] = useState<any[]>([])
+  const [messages, setMessages] = useState<any[]>([])
+  const [inputMessage, setInputMessage] = useState("")
+  const [socket, setSocket] = useState<Socket | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const notificationSound = useRef<HTMLAudioElement>(null)
-  const messageInputRef = useRef<HTMLInputElement>(null)
-  const router = useRouter()
-  const { toast } = useToast()
-
-  const [isManagingTags, setIsManagingTags] = useState(false)
-  const [isFilteringChats, setIsFilteringChats] = useState(false)
+  const [isSearching, setIsSearching] = useState(false)
+  const [replyingTo, setReplyingTo] = useState<any>(null)
+  const [reactingTo, setReactingTo] = useState<any>(null)
+  const [quotePreview, setQuotePreview] = useState<any>(null)
+  const [isUploading, setIsUploading] = useState(false)
+  const [isEditingProfile, setIsEditingProfile] = useState(false)
+  const [isEditingGroup, setIsEditingGroup] = useState(false)
+  const [isCreatingGroup, setIsCreatingGroup] = useState(false)
+  const [isManagingBackup, setIsManagingBackup] = useState(false)
+  const [isTranslating, setIsTranslating] = useState(false)
+  const [messageToTranslate, setMessageToTranslate] = useState<any>(null)
+  const [isCreatingPoll, setIsCreatingPoll] = useState(false)
+  const [isViewingHistory, setIsViewingHistory] = useState(false)
+  const [isSchedulingMessage, setIsSchedulingMessage] = useState(false)
+  const [scheduledMessage, setScheduledMessage] = useState<any>({ content: "", date: null })
+  const [userList, setUserList] = useState<User[]>([])
+  const [isSharingLocation, setIsSharingLocation] = useState(false)
+  const [location, setLocation] = useState<any>(null)
+  const [attachmentType, setAttachmentType] = useState<"file" | "audio" | null>(null)
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [isRecordingAudio, setIsRecordingAudio] = useState(false)
+  const [activeTab, setActiveTab] = useState<string>("chats")
   const [tags, setTags] = useState<any[]>([])
-  const [archivedChats, setArchivedChats] = useState<any[]>([])
+  const [activeFilters, setActiveFilters] = useState({ tags: [], query: "", showArchived: false })
   const [filteredChats, setFilteredChats] = useState<any[]>([])
-  const [activeFilters, setActiveFilters] = useState<any>({
-    tags: [],
-    query: "",
-    showArchived: false,
-  })
-
-  const [activeTab, setActiveTab] = useState("chats")
+  const [isFilteringChats, setIsFilteringChats] = useState(false)
+  const [isManagingTags, setIsManagingTags] = useState(false)
+  const [selectedFile, setSelectedFile] = useState<any>(null)
+  const [isPreviewingFile, setIsPreviewingFile] = useState(false)
+  // Mobile sidebar state
+  const [sidebarOpen, setSidebarOpen] = useState(typeof window !== 'undefined' && window.innerWidth > 768)
+  
+  // Detect mobile on initial load
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth <= 768) {
+        setSidebarOpen(false)
+      } else {
+        setSidebarOpen(true)
+      }
+    }
+    
+    // Set initial state
+    handleResize()
+    
+    // Add resize listener
+    window.addEventListener('resize', handleResize)
+    return () => {
+      window.removeEventListener('resize', handleResize)
+    }
+  }, [])
 
   useLayoutEffect(() => {
     // Check if user is logged in
@@ -698,9 +708,9 @@ export default function ChatApp() {
       console.log("Enviando mensagem:", newMessage); // Depuração
       
       socket.emit("message:send", newMessage)
-      setMessage("")
+      setInputMessage("")
       setReplyingTo(null)
-      setQuotingMessage(null)
+      setQuotePreview(null)
     }
   }
 
@@ -755,7 +765,7 @@ export default function ChatApp() {
       return
     }
 
-    setIsShareLocation(true)
+    setIsSharingLocation(true)
 
     navigator.geolocation.getCurrentPosition(
       async (position) => {
@@ -764,7 +774,7 @@ export default function ChatApp() {
         // Reverse geocoding to get address (would use a service like Google Maps in production)
         const address = "Localização compartilhada"
 
-        setCurrentLocation({
+        setLocation({
           latitude,
           longitude,
           address,
@@ -777,25 +787,25 @@ export default function ChatApp() {
           description: "Não foi possível obter sua localização",
           variant: "destructive",
         })
-        setIsShareLocation(false)
+        setIsSharingLocation(false)
       },
     )
   }
 
   const handleSendLocation = () => {
-    if (!currentLocation || !socket || !activeChat) return
+    if (!location || !socket || !activeChat) return
 
     const locationMessage = {
       chatId: activeChat.id,
       sender: user,
-      content: JSON.stringify(currentLocation),
+      content: JSON.stringify(location),
       timestamp: new Date().toISOString(),
       type: "location",
     }
 
     socket.emit("message:send", locationMessage)
-    setIsShareLocation(false)
-    setCurrentLocation(null)
+    setIsSharingLocation(false)
+    setLocation(null)
   }
 
   const handleCreatePoll = async (pollData: any) => {
@@ -887,8 +897,13 @@ export default function ChatApp() {
       socket.emit("message:history", String(chat.id))
     }
     
+    // Fechar a gaveta em dispositivos móveis
+    if (window.innerWidth <= 768) {
+      setSidebarOpen(false)
+    }
+    
     setReplyingTo(null)
-    setQuotingMessage(null)
+    setQuotePreview(null)
   }
 
   const handleDeleteChat = (chatId: string) => {
@@ -935,7 +950,7 @@ export default function ChatApp() {
   const handleQuoteMessage = (messageId: string) => {
     const messageToQuote = messages.find((msg) => msg.id === messageId)
     if (messageToQuote) {
-      setQuotingMessage({
+      setQuotePreview({
         id: messageId,
         content: messageToQuote.content,
         sender: {
@@ -1059,6 +1074,11 @@ export default function ChatApp() {
         participants: [user.id, selectedUser.id],
         createdBy: user.id
       })
+      
+      // Fechar a gaveta em dispositivos móveis
+      if (window.innerWidth <= 768) {
+        setSidebarOpen(false)
+      }
     }
   }
 
@@ -1114,6 +1134,11 @@ export default function ChatApp() {
       // Fechar modal
       setIsCreatingGroup(false);
       
+      // Fechar a gaveta em dispositivos móveis
+      if (window.innerWidth <= 768) {
+        setSidebarOpen(false)
+      }
+      
       // Mostrar mensagem de sucesso
       toast({
         title: "Grupo criado",
@@ -1159,8 +1184,23 @@ export default function ChatApp() {
       {/* Hidden audio element for notifications */}
       <audio ref={notificationSound} src="/notification.mp3" />
 
-      {/* Sidebar */}
-      <div className="w-80 border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+      {/* Mobile Drawer Overlay - Visible only on mobile when drawer is open */}
+      {sidebarOpen && (
+        <div 
+          className="md:hidden fixed inset-0 bg-black/50 z-10 animate-in fade-in duration-200" 
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      {/* Sidebar - Mobile Drawer */}
+      <div 
+        className={`
+          md:flex md:relative md:z-auto fixed z-20 h-full flex-col w-[85%] sm:w-[70%] md:w-80 
+          border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 
+          transition-all duration-300 ease-in-out drawer-transition
+          ${sidebarOpen ? 'flex drawer-open' : 'hidden md:hidden drawer-closed'}
+        `}
+      >
         <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
           <div className="flex items-center space-x-3">
             <Avatar>
@@ -1172,32 +1212,37 @@ export default function ChatApp() {
               <p className="text-xs text-gray-500">{user?.email}</p>
             </div>
           </div>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon">
-                <MoreVertical className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => setIsEditingProfile(true)}>
-                <Settings className="h-4 w-4 mr-2" />
-                Editar perfil
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setIsManagingBackup(true)}>
-                <Database className="h-4 w-4 mr-2" />
-                Backup
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setIsViewingHistory(true)}>
-                <History className="h-4 w-4 mr-2" />
-                Histórico
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={handleLogout} className="text-red-600">
-                <LogOut className="h-4 w-4 mr-2" />
-                Sair
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <div className="flex items-center">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon">
+                  <MoreVertical className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => setIsEditingProfile(true)}>
+                  <Settings className="h-4 w-4 mr-2" />
+                  Editar perfil
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setIsManagingBackup(true)}>
+                  <Database className="h-4 w-4 mr-2" />
+                  Backup
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setIsViewingHistory(true)}>
+                  <History className="h-4 w-4 mr-2" />
+                  Histórico
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={handleLogout} className="text-red-600">
+                  <LogOut className="h-4 w-4 mr-2" />
+                  Sair
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Button variant="ghost" size="icon" className="md:hidden ml-2" onClick={() => setSidebarOpen(false)}>
+              <ChevronLeft className="h-5 w-5" />
+            </Button>
+          </div>
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -1399,398 +1444,252 @@ export default function ChatApp() {
         </Tabs>
       </div>
 
-      {/* Main Chat Area */}
+      {/* Main chat container */}
       <div className="flex-1 flex flex-col">
+        {/* Chat header */}
         {activeChat ? (
-          <>
-            <div className="p-4 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <Avatar>
-                  {activeChat.is_group ? (
-                    activeChat.avatar ? (
-                      <AvatarImage src={activeChat.avatar} />
-                    ) : (
-                      <AvatarFallback className="bg-green-500">{activeChat.name?.charAt(0)}</AvatarFallback>
-                    )
+          <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between bg-white dark:bg-gray-800">
+            <div className="flex items-center">
+              {/* Mobile menu button */}
+              <Button variant="ghost" size="icon" className="mr-2 md:hidden" onClick={() => setSidebarOpen(true)}>
+                <Menu className="h-6 w-6 text-primary" />
+              </Button>
+              
+              <Avatar className="mr-3">
+                {activeChat.is_group ? (
+                  activeChat.avatar ? (
+                    <AvatarImage src={activeChat.avatar} />
                   ) : (
-                    <>
-                      <AvatarImage src={activeChat.participants[0]?.avatar || "/placeholder.svg?height=40&width=40"} />
-                      <AvatarFallback>{activeChat.participants[0]?.name?.charAt(0)}</AvatarFallback>
-                    </>
-                  )}
-                </Avatar>
-                <div>
-                  <h3 className="font-semibold">
-                    {activeChat.is_group ? activeChat.name : activeChat.participants[0]?.name}
-                  </h3>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
-                    {activeChat.is_group
-                      ? `${activeChat.participants.length} membros`
-                      : activeChat.participants[0]?.is_online
-                        ? "Online"
-                        : "Offline"}
-                  </p>
-                </div>
-              </div>
-              <div className="flex space-x-2">
-                {activeChat.muted && (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => handleToggleMute(activeChat.id)}
-                    title="Ativar notificações"
-                  >
-                    <BellOff className="h-5 w-5" />
-                  </Button>
+                    <AvatarFallback className="bg-green-500">{activeChat.name?.charAt(0)}</AvatarFallback>
+                  )
+                ) : (
+                  <>
+                    <AvatarImage src={activeChat.participants[0]?.avatar || "/placeholder.svg?height=40&width=40"} />
+                    <AvatarFallback>{activeChat.participants[0]?.name?.charAt(0)}</AvatarFallback>
+                  </>
                 )}
-
+              </Avatar>
+              <div>
+                <h3 className="font-semibold">
+                  {activeChat.is_group ? activeChat.name : activeChat.participants[0]?.name}
+                </h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  {activeChat.is_group
+                    ? `${activeChat.participants.length} participantes`
+                    : activeChat.participants[0]?.is_online
+                    ? "Online"
+                    : activeChat.participants[0]?.last_seen
+                    ? `Visto por último: ${formatMessageTime(activeChat.participants[0]?.last_seen)}`
+                    : "Offline"}
+                </p>
+              </div>
+            </div>
+            <div className="flex space-x-2">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setIsSearching(true)}
+                title="Pesquisar mensagens"
+              >
+                <Search className="h-5 w-5" />
+              </Button>
+              {activeChat.is_group && (
                 <Button
                   variant="ghost"
                   size="icon"
-                  onClick={() => setIsSearching(true)}
-                  title="Pesquisar mensagens"
+                  onClick={() => {
+                    setIsEditingGroup(true)
+                  }}
                 >
-                  <Search className="h-5 w-5" />
+                  <Settings className="h-5 w-5" />
                 </Button>
-
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon" title="Mais opções">
-                      <MoreVertical className="h-5 w-5" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    {activeChat.is_group && (
-                      <DropdownMenuItem onClick={() => setIsEditingGroup(true)}>
-                        <Settings className="h-4 w-4 mr-2" />
-                        Editar grupo
-                      </DropdownMenuItem>
-                    )}
-
-                    <DropdownMenuItem onClick={() => setIsCreatingPoll(true)}>
-                      <BarChart2 className="h-4 w-4 mr-2" />
-                      Criar enquete
-                    </DropdownMenuItem>
-
-                    <DropdownMenuItem onClick={handleShareLocation}>
-                      <MapPin className="h-4 w-4 mr-2" />
-                      Compartilhar localização
-                    </DropdownMenuItem>
-
-                    <DropdownMenuItem onClick={() => setIsViewingHistory(true)}>
-                      <History className="h-4 w-4 mr-2" />
-                      Histórico de ações
-                    </DropdownMenuItem>
-
-                    <DropdownMenuSeparator />
-
-                    <DropdownMenuItem onClick={() => setIsManagingBackup(true)}>
-                      <Database className="h-4 w-4 mr-2" />
-                      Backup e restauração
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
+              )}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" title="Mais opções">
+                    <MoreVertical className="h-5 w-5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => setIsCreatingPoll(true)}>
+                    <BarChart2 className="h-4 w-4 mr-2" />
+                    Criar enquete
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleShareLocation}>
+                    <MapPin className="h-4 w-4 mr-2" />
+                    Compartilhar localização
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setIsViewingHistory(true)}>
+                    <History className="h-4 w-4 mr-2" />
+                    Histórico de ações
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => setIsManagingBackup(true)}>
+                    <Database className="h-4 w-4 mr-2" />
+                    Backup e restauração
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
-
+          </div>
+        ) : (
+          <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between bg-white dark:bg-gray-800">
+            <div className="flex items-center">
+              {/* Mobile menu button when no chat is selected */}
+              <Button variant="ghost" size="icon" className="mr-2 md:hidden" onClick={() => setSidebarOpen(true)}>
+                <Menu className="h-6 w-6 text-primary" />
+              </Button>
+              <h3 className="font-medium">Chat em Tempo Real</h3>
+            </div>
+          </div>
+        )}
+        
+        {activeChat ? (
+          <>
             {/* Pinned Messages */}
-            {pinnedMessages.length > 0 && (
-              <div className="bg-yellow-50 dark:bg-yellow-900/20 p-2 border-b border-yellow-200 dark:border-yellow-800">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center">
-                    <Pin className="h-4 w-4 text-yellow-600 dark:text-yellow-400 mr-2" />
-                    <span className="text-sm font-medium text-yellow-800 dark:text-yellow-200">
-                      {pinnedMessages.length} {pinnedMessages.length === 1 ? "mensagem fixada" : "mensagens fixadas"}
-                    </span>
+            {activeChat.pinnedMessages && activeChat.pinnedMessages.length > 0 && (
+              <div className="py-2 px-4 bg-yellow-50 dark:bg-yellow-900/20 border-b border-yellow-100 dark:border-yellow-800/20">
+                <div className="flex items-center space-x-2">
+                  <Pin className="h-4 w-4 text-yellow-600 dark:text-yellow-400" />
+                  <div className="flex-1">
+                    <p className="text-xs font-medium text-yellow-800 dark:text-yellow-300">
+                      Mensagem fixada
+                    </p>
+                    <p className="text-sm text-yellow-700 dark:text-yellow-400 truncate">
+                      {activeChat.pinnedMessages[0].content}
+                    </p>
                   </div>
                   <Button
                     variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      // Scroll to most recent pinned message
-                      const mostRecentPinned = pinnedMessages[pinnedMessages.length - 1]
-                      const element = document.getElementById(`message-${mostRecentPinned.id}`)
-                      if (element) {
-                        element.scrollIntoView({ behavior: "smooth" })
-                        element.classList.add("bg-yellow-100")
-                        setTimeout(() => {
-                          element.classList.remove("bg-yellow-100")
-                        }, 2000)
-                      }
-                    }}
+                    size="icon"
+                    className="h-8 w-8 text-yellow-600 dark:text-yellow-400 hover:text-yellow-700 hover:bg-yellow-100 dark:hover:bg-yellow-800/20"
+                    onClick={() => handlePinMessage(activeChat.pinnedMessages[0].id, false)}
                   >
-                    Ver última
+                    <X className="h-4 w-4" />
                   </Button>
                 </div>
               </div>
             )}
 
-            <ScrollArea className="flex-1 p-4 bg-gray-50 dark:bg-gray-900">
+            {/* Messages */}
+            <ScrollArea className="flex-1 p-4">
               <div className="space-y-4">
-                {messages.map((msg) => (
-                  <div key={msg.id} className={`flex items-start space-x-2 mb-4 ${String(msg.sender?.id) === String(user?.id) ? "justify-end" : ""}`}>
-                    {String(msg.sender?.id) !== String(user?.id) && (
-                      <Avatar className="h-8 w-8">
-                        <AvatarImage src={msg.sender?.avatar || "/placeholder.svg"} />
-                        <AvatarFallback>{msg.sender?.name?.charAt(0) || "?"}</AvatarFallback>
-                      </Avatar>
-                    )}
-                    <div className={`flex flex-col ${String(msg.sender?.id) === String(user?.id) ? "items-end" : ""}`}>
-                      <div className="flex items-center space-x-2">
-                        <span className="text-xs text-gray-500">{msg.sender?.name}</span>
-                        <span className="text-xs text-gray-400">{formatMessageTime(msg.timestamp)}</span>
-                      </div>
-                      <div
-                        className={`p-3 rounded-lg max-w-md overflow-hidden ${
-                          String(msg.sender?.id) === String(user?.id)
-                            ? "bg-gray-200 dark:bg-gray-700 text-black dark:text-white"
-                            : "bg-gray-100 dark:bg-gray-800 dark:text-gray-100"
-                        }`}
-                      >
-                        {msg.type === 'audio' ? (
-                          <div className="w-full">
-                            <audio controls className="w-full mb-1">
-                              <source src={msg.content} type="audio/mpeg" />
-                              Seu navegador não suporta o elemento de áudio.
-                            </audio>
-                            <div className="flex justify-end">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="p-1 h-auto"
-                                onClick={() => window.open(msg.content, "_blank")}
-                              >
-                                <Download className="h-3 w-3 mr-1" />
-                                <span className="text-xs">Baixar</span>
-                              </Button>
-                            </div>
-                          </div>
-                        ) : msg.type === 'image' ? (
-                          <div className="relative">
-                            <Image
-                              src={msg.content}
-                              alt="Imagem enviada"
-                              width={300}
-                              height={300}
-                              className="rounded-lg"
-                            />
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="absolute top-2 right-2 bg-black/50 hover:bg-black/70"
-                              onClick={(e) => {
-                                e.preventDefault()
-                                fetch(msg.content)
-                                  .then(res => res.blob())
-                                  .then(blob => {
-                                    const url = window.URL.createObjectURL(blob)
-                                    const a = document.createElement('a')
-                                    a.style.display = 'none'
-                                    a.href = url
-                                    a.download = msg.fileName || `imagem-${new Date().toISOString()}.jpg`
-                                    document.body.appendChild(a)
-                                    a.click()
-                                    window.URL.revokeObjectURL(url)
-                                    document.body.removeChild(a)
-                                  })
-                              }}
-                            >
-                              <Download className="h-4 w-4 text-white" />
-                            </Button>
-                          </div>
-                        ) : msg.type === 'file' ? (
-                          <div className="w-full">
-                            <FilePreview 
-                              fileName={msg.fileName || msg.content.split('/').pop() || 'Arquivo'} 
-                              fileUrl={msg.content} 
-                            />
-                          </div>
-                        ) : msg.type === 'location' ? (
-                          <div className="space-y-2">
-                            <div className="flex items-center space-x-2">
-                              <MapPin className="h-4 w-4" />
-                              <span className="font-medium">Localização Compartilhada</span>
-                            </div>
-                            <div className="bg-gray-50 dark:bg-gray-900 p-2 rounded text-sm">
-                              <a 
-                                href={`https://www.google.com/maps?q=${JSON.parse(msg.content).latitude},${JSON.parse(msg.content).longitude}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-blue-500 hover:text-blue-600 flex items-center"
-                              >
-                                <MapPin className="h-4 w-4 mr-1" />
-                                Abrir no Google Maps
-                              </a>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="whitespace-pre-wrap break-words">{msg.content}</div>
-                        )}
-                      </div>
-                    </div>
-                    {String(msg.sender?.id) === String(user?.id) && (
-                      <Avatar className="h-8 w-8">
-                        <AvatarImage src={msg.sender.avatar || "/placeholder.svg"} />
-                        <AvatarFallback>{msg.sender.name?.[0]}</AvatarFallback>
-                      </Avatar>
-                    )}
-                  </div>
+                {messages.map((message) => (
+                  <ChatMessage
+                    key={message.id}
+                    message={message}
+                    currentUser={user}
+                    onDelete={handleDeleteMessage}
+                    onReply={handleReplyMessage}
+                    onQuote={handleQuoteMessage}
+                    onPin={handlePinMessage}
+                    onReaction={handleReactionAdd}
+                    onTranslate={handleTranslateMessage}
+                    pinnedMessages={activeChat.pinnedMessages || []}
+                    onFilePreview={(file) => {
+                      setSelectedFile(file)
+                      setIsPreviewingFile(true)
+                    }}
+                  />
                 ))}
                 <div ref={messagesEndRef} />
               </div>
             </ScrollArea>
 
-            {replyingTo && (
-              <div className="p-2 bg-gray-100 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  <div className="w-1 h-6 bg-primary rounded-full" />
-                  <div>
-                    <p className="text-xs font-medium">Respondendo para {replyingTo.sender.name}</p>
-                    <p className="text-xs text-gray-500 truncate w-80">{replyingTo.content}</p>
-                  </div>
-                </div>
-                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setReplyingTo(null)}>
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-            )}
-
-            {quotingMessage && (
-              <div className="p-2 bg-gray-100 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  <div className="w-1 h-6 bg-blue-500 rounded-full" />
-                  <div>
-                    <p className="text-xs font-medium">Citando mensagem de {quotingMessage.sender.name}</p>
-                    <p className="text-xs text-gray-500 truncate w-80">{quotingMessage.content}</p>
-                  </div>
-                </div>
-                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setQuotingMessage(null)}>
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-            )}
-
+            {/* Message input */}
             <div className="p-4 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700">
-              <div
-                onDragOver={(e) => {
-                  e.preventDefault()
-                  e.stopPropagation()
-                }}
-                onDrop={async (e) => {
-                  e.preventDefault()
-                  e.stopPropagation()
-                  const files = Array.from(e.dataTransfer.files)
-                  if (files.length > 0) {
-                    const file = files[0]
-                    const formData = new FormData()
-                    formData.append("file", file)
-                    formData.append("chatId", String(activeChat.id))
-                    formData.append("senderId", String(user.id))
-
-                    try {
-                      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/upload/${file.type.startsWith('image/') ? 'image' : 'file'}`, {
-                        method: "POST",
-                        headers: {
-                          Authorization: `Bearer ${localStorage.getItem("token")}`,
-                        },
-                        body: formData,
-                      })
-
-                      if (!response.ok) throw new Error("Falha ao enviar arquivo")
-
-                      const data = await response.json()
-                      socket.emit("message:send", {
-                        chatId: activeChat.id,
-                        sender: user,
-                        content: data.url,
-                        timestamp: new Date().toISOString(),
-                        type: file.type.startsWith('image/') ? 'image' : 'file',
-                        fileName: file.name,
-                        replyTo: replyingTo,
-                      })
-                    } catch (error) {
-                      console.error("Error uploading file:", error)
-                      toast({
-                        title: "Erro",
-                        description: "Ocorreu um erro ao enviar o arquivo",
-                        variant: "destructive",
-                      })
-                    }
-                  }
-                }}
-              >
-                <MessageInput
-                  chatId={activeChat.id}
-                  participants={activeChat.is_group ? activeChat.participants : []}
-                  onSendMessage={handleSendMessage}
-                  onAttachmentClick={() => setIsUploading(true)}
-                  onRecordClick={() => setIsRecording(!isRecording)}
-                  onScheduleClick={() => setIsSchedulingMessage(true)}
-                  replyingTo={replyingTo}
-                  isGroup={activeChat.is_group}
-                />
-              </div>
-
-              {isRecording && (
-                <div className="mt-2">
-                  <AudioRecorder
-                    onRecordingComplete={(audioBlob) => {
-                      if (!socket || !activeChat) {
-                        toast({
-                          title: "Erro",
-                          description: "Não foi possível enviar o áudio. Tente novamente.",
-                          variant: "destructive",
-                        })
-                        return
-                      }
-
-                      const formData = new FormData()
-                      formData.append("file", audioBlob)
-                      formData.append("chatId", String(activeChat.id))
-                      formData.append("senderId", String(user.id))
-
-                      // Mostrar feedback de carregamento
-                      toast({
-                        title: "Enviando áudio",
-                        description: "Aguarde enquanto enviamos seu áudio...",
-                      })
-
-                      fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/upload/audio`, {
-                        method: "POST",
-                        headers: {
-                          Authorization: `Bearer ${localStorage.getItem("token")}`,
-                        },
-                        body: formData,
-                      })
-                        .then((response) => response.json())
-                        .then((data) => {
-                          socket.emit("message:send", {
-                            chatId: activeChat.id,
-                            sender: user,
-                            content: data.url,
-                            timestamp: new Date().toISOString(),
-                            type: "audio",
-                            replyTo: replyingTo,
-                          })
-                          setIsRecording(false)
-                          setReplyingTo(null)
-                          toast({
-                            title: "Áudio enviado",
-                            description: "Seu áudio foi enviado com sucesso!",
-                          })
-                        })
-                        .catch(error => {
-                          console.error("Error uploading audio:", error)
-                          toast({
-                            title: "Erro",
-                            description: "Ocorreu um erro ao enviar o áudio",
-                            variant: "destructive",
-                          })
-                        })
-                    }}
-                  />
+              {replyingTo && (
+                <div className="p-2 bg-gray-100 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <div className="w-1 h-6 bg-blue-500 rounded-full" />
+                    <div>
+                      <p className="text-xs font-medium">Respondendo para {replyingTo.sender.name}</p>
+                      <p className="text-xs text-gray-500 truncate w-80">{replyingTo.content}</p>
+                    </div>
+                  </div>
+                  <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setReplyingTo(null)}>
+                    <X className="h-4 w-4" />
+                  </Button>
                 </div>
               )}
+
+              {quotePreview && (
+                <div className="p-2 bg-gray-100 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <div className="w-1 h-6 bg-blue-500 rounded-full" />
+                    <div>
+                      <p className="text-xs font-medium">Citando mensagem de {quotePreview.sender.name}</p>
+                      <p className="text-xs text-gray-500 truncate w-80">{quotePreview.content}</p>
+                    </div>
+                  </div>
+                  <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setQuotePreview(null)}>
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              )}
+
+              <div className="flex items-center space-x-2">
+                <MessageInput
+                  value={inputMessage}
+                  onChange={setInputMessage}
+                  onSendMessage={handleSendMessage}
+                  onAttachmentClick={() => setIsUploading(true)}
+                  onRecordClick={() => setIsRecordingAudio(!isRecordingAudio)}
+                  onScheduleClick={() => setIsSchedulingMessage(true)}
+                  replyingTo={replyingTo}
+                />
+
+                {isRecordingAudio && (
+                  <div className="mt-2">
+                    <AudioRecorder
+                      onRecordingComplete={(audioBlob) => {
+                        if (!socket || !activeChat) return
+
+                        // Create FormData to upload audio
+                        const formData = new FormData()
+                        formData.append("audio", audioBlob, "audio.mp3")
+
+                        // Upload audio
+                        fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/upload/audio`, {
+                          method: "POST",
+                          body: formData,
+                          headers: {
+                            Authorization: `Bearer ${localStorage.getItem("token")}`,
+                          },
+                        })
+                          .then((response) => response.json())
+                          .then((data) => {
+                            // Send audio message
+                            socket.emit("message:send", {
+                              chatId: activeChat.id,
+                              sender: user,
+                              content: data.audioUrl,
+                              fileName: "Audio Recording",
+                              timestamp: new Date().toISOString(),
+                              type: "audio",
+                              replyTo: replyingTo,
+                            })
+                            setIsRecordingAudio(false)
+                            setReplyingTo(null)
+                            toast({
+                              title: "Áudio enviado",
+                              description: "Sua mensagem de áudio foi enviada com sucesso.",
+                            })
+                          })
+                          .catch((error) => {
+                            console.error("Error uploading audio:", error)
+                            toast({
+                              title: "Erro",
+                              description: "Ocorreu um erro ao enviar o áudio. Tente novamente.",
+                              variant: "destructive",
+                            })
+                          })
+                      }}
+                      onCancel={() => setIsRecordingAudio(false)}
+                    />
+                  </div>
+                )}
+              </div>
             </div>
           </>
         ) : (
@@ -1952,21 +1851,21 @@ export default function ChatApp() {
         </Dialog>
       )}
 
-      {isShareLocation && (
-        <Dialog open={true} onOpenChange={() => setIsShareLocation(false)}>
+      {isSharingLocation && (
+        <Dialog open={true} onOpenChange={() => setIsSharingLocation(false)}>
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
               <DialogTitle>Compartilhar Localização</DialogTitle>
             </DialogHeader>
 
             <div className="space-y-4">
-              {currentLocation ? (
+              {location ? (
                 <div className="space-y-2">
                   <p className="text-sm font-medium">Sua localização:</p>
                   <div className="bg-gray-100 dark:bg-gray-800 p-4 rounded-md">
-                    <p className="text-sm">Latitude: {currentLocation.latitude}</p>
-                    <p className="text-sm">Longitude: {currentLocation.longitude}</p>
-                    {currentLocation.address && <p className="text-sm mt-2">{currentLocation.address}</p>}
+                    <p className="text-sm">Latitude: {location.latitude}</p>
+                    <p className="text-sm">Longitude: {location.longitude}</p>
+                    {location.address && <p className="text-sm mt-2">{location.address}</p>}
                   </div>
                 </div>
               ) : (
@@ -1977,10 +1876,10 @@ export default function ChatApp() {
             </div>
 
             <DialogFooter>
-              <Button variant="outline" onClick={() => setIsShareLocation(false)}>
+              <Button variant="outline" onClick={() => setIsSharingLocation(false)}>
                 Cancelar
               </Button>
-              <Button onClick={handleSendLocation} disabled={!currentLocation}>
+              <Button onClick={handleSendLocation} disabled={!location}>
                 Compartilhar
               </Button>
             </DialogFooter>
@@ -2045,6 +1944,11 @@ export default function ChatApp() {
                 
                 // Fechar modal
                 setIsCreatingGroup(false);
+                
+                // Fechar a gaveta em dispositivos móveis
+                if (window.innerWidth <= 768) {
+                  setSidebarOpen(false)
+                }
                 
                 // Mostrar mensagem de sucesso
                 toast({

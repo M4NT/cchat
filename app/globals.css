@@ -12,6 +12,35 @@ body {
   }
 }
 
+/* Mobile Drawer Styles */
+@media (max-width: 768px) {
+  .drawer-transition {
+    transition: transform 0.3s ease-in-out;
+    will-change: transform;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+  }
+  
+  .drawer-closed {
+    transform: translateX(-100%);
+  }
+  
+  .drawer-open {
+    transform: translateX(0);
+  }
+  
+  .drawer-overlay {
+    background-color: rgba(0, 0, 0, 0.5);
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 10;
+    transition: opacity 0.3s ease-in-out;
+    backdrop-filter: blur(2px);
+  }
+}
+
 @layer base {
   :root {
     --background: 0 0% 100%;
