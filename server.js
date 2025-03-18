@@ -17,7 +17,12 @@ const app = express()
 const server = http.createServer(app)
 
 // Middleware
-app.use(cors())
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
+}))
 app.use(express.json())
 app.use("/uploads", express.static(path.join(__dirname, "uploads")))
 
@@ -1320,7 +1325,9 @@ app.get("/api/tags", authenticateJWT, async (req, res) => {
 
 // Start server
 const PORT = process.env.PORT || 3001
-server.listen(PORT, () => {
-  console.log(`Servidor rodando na porta ${PORT}`)
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`Servidor rodando na porta ${PORT} (http://0.0.0.0:${PORT})`)
+  console.log(`Acesse localmente: http://localhost:${PORT}`)
+  console.log(`Acesse na rede: http://192.168.3.180:${PORT}`)
 })
 
