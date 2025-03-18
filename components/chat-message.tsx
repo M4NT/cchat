@@ -89,6 +89,9 @@ interface ChatMessageProps {
   onQuote?: (messageId: string) => void
   onReactionAdd?: (messageId: string, emoji: string) => void
   onVote?: (messageId: string, optionId: string) => void
+  onFilePreview?: (file: any) => void
+  onTranslate?: (messageId: string) => void
+  pinnedMessages?: any[]
 }
 
 export default function ChatMessage({
@@ -102,6 +105,9 @@ export default function ChatMessage({
   onQuote,
   onReactionAdd,
   onVote,
+  onFilePreview,
+  onTranslate,
+  pinnedMessages,
 }: ChatMessageProps) {
   const [isPlaying, setIsPlaying] = useState(false)
   const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(null)
@@ -121,10 +127,13 @@ export default function ChatMessage({
 
     // Process mentions
     processedContent = processedContent.replace(/@(\w+)/g, (match, username) => {
-      const mentionedUser = participants.find((p) => p.name.toLowerCase() === username.toLowerCase())
+      // Verificar se a lista de participantes existe antes de tentar encontrar
+      if (participants && Array.isArray(participants)) {
+        const mentionedUser = participants.find((p) => p.name?.toLowerCase() === username.toLowerCase())
 
-      if (mentionedUser) {
-        return `<span class="bg-primary/20 text-primary font-medium rounded px-1">@${username}</span>`
+        if (mentionedUser) {
+          return `<span class="bg-primary/20 text-primary font-medium rounded px-1">@${username}</span>`
+        }
       }
 
       return match
@@ -185,6 +194,18 @@ export default function ChatMessage({
   const handleVote = (optionId: string) => {
     if (onVote && message.poll && !message.poll.hasVoted) {
       onVote(message.id, optionId)
+    }
+  }
+
+  const handleTranslate = () => {
+    if (onTranslate) {
+      onTranslate(message.id)
+    }
+  }
+
+  const handleFilePreview = (file: any) => {
+    if (onFilePreview) {
+      onFilePreview(file)
     }
   }
 
@@ -408,6 +429,20 @@ export default function ChatMessage({
                   <DropdownMenuItem onClick={() => onQuote(message.id)}>
                     <Quote className="h-4 w-4 mr-2" />
                     Citar
+                  </DropdownMenuItem>
+                )}
+
+                {message.type === "text" && onTranslate && (
+                  <DropdownMenuItem onClick={handleTranslate}>
+                    <MapPin className="h-4 w-4 mr-2" />
+                    Traduzir
+                  </DropdownMenuItem>
+                )}
+
+                {(message.type === "file" || message.type === "image") && onFilePreview && (
+                  <DropdownMenuItem onClick={() => handleFilePreview(message)}>
+                    <FileText className="h-4 w-4 mr-2" />
+                    Visualizar
                   </DropdownMenuItem>
                 )}
 

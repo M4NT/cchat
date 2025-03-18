@@ -147,6 +147,11 @@ export default function ChatApp() {
   const [isPreviewingFile, setIsPreviewingFile] = useState(false)
   // Mobile sidebar state
   const [sidebarOpen, setSidebarOpen] = useState(typeof window !== 'undefined' && window.innerWidth > 768)
+  // Adicionar estados para mutedChats e pinnedMessages
+  const [mutedChats, setMutedChats] = useState<string[]>([])
+  const [pinnedMessages, setPinnedMessages] = useState<any[]>([])
+  const [archivedChats, setArchivedChats] = useState<any[]>([])
+  const messageInputRef = useRef<HTMLInputElement>(null)
   
   // Detect mobile on initial load
   useEffect(() => {
@@ -702,7 +707,7 @@ export default function ChatApp() {
         timestamp: new Date().toISOString(),
         type: "text",
         replyTo: replyingTo,
-        quotedMessage: quotingMessage,
+        quotedMessage: quotePreview,
       }
 
       console.log("Enviando mensagem:", newMessage); // Depuração
@@ -1051,7 +1056,16 @@ export default function ChatApp() {
   }
 
   // Check if user is admin in current chat
-  const isAdmin = activeChat?.participants?.some((p: ChatParticipant) => p.id === user?.id && p.isAdmin)
+  useEffect(() => {
+    if (activeChat?.participants) {
+      const checkIsAdmin = activeChat.participants.some(
+        (p: ChatParticipant) => p.id === user?.id && p.isAdmin
+      );
+      setIsAdmin(checkIsAdmin);
+    } else {
+      setIsAdmin(false);
+    }
+  }, [activeChat, user?.id]);
 
   const handleUserSelect = async (selectedUser: User) => {
     // Verifica se já existe um chat individual com este usuário
@@ -1578,18 +1592,24 @@ export default function ChatApp() {
                   <ChatMessage
                     key={message.id}
                     message={message}
-                    currentUser={user}
+                    currentUserId={String(user?.id)}
                     onDelete={handleDeleteMessage}
                     onReply={handleReplyMessage}
                     onQuote={handleQuoteMessage}
                     onPin={handlePinMessage}
-                    onReaction={handleReactionAdd}
-                    onTranslate={handleTranslateMessage}
+                    onReactionAdd={handleReactionAdd}
+                    onVote={(messageId, optionId) => {
+                      if (message.type === "poll" && message.poll) {
+                        handleVotePoll(messageId, optionId);
+                      }
+                    }}
                     pinnedMessages={activeChat.pinnedMessages || []}
                     onFilePreview={(file) => {
                       setSelectedFile(file)
                       setIsPreviewingFile(true)
                     }}
+                    participants={activeChat?.participants || []}
+                    isOwnMessage={String(message.sender?.id) === String(user?.id)}
                   />
                 ))}
                 <div ref={messagesEndRef} />
