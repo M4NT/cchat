@@ -1553,7 +1553,14 @@ export default function ChatApp() {
               <Button variant="ghost" size="icon" className="mr-2 md:hidden" onClick={() => setSidebarOpen(true)}>
                 <Menu className="h-6 w-6 text-primary" />
               </Button>
-              <h3 className="font-medium">Chat em Tempo Real</h3>
+              <div className="flex items-center gap-2">
+                <img 
+                  src="/logo-saude-cred.png" 
+                  alt="Saúde Cred Logo" 
+                  className="h-8 w-8 rounded-full object-cover"
+                />
+                <h3 className="font-medium">C.Chat</h3>
+              </div>
             </div>
           </div>
         )}

@@ -25,8 +25,8 @@ export default function LoginPage() {
 
     if (!email || !password) {
       toast({
-        title: "Error",
-        description: "Please fill in all fields",
+        title: "Erro",
+        description: "Por favor, preencha todos os campos",
         variant: "destructive",
       })
       return
@@ -51,22 +51,22 @@ export default function LoginPage() {
         localStorage.setItem("token", data.token)
 
         toast({
-          title: "Success",
-          description: "Logged in successfully",
+          title: "Sucesso",
+          description: "Login realizado com sucesso",
         })
 
         router.push("/")
       } else {
         toast({
-          title: "Error",
-          description: data.message || "Failed to login",
+          title: "Erro",
+          description: data.message || "Falha ao realizar login",
           variant: "destructive",
         })
       }
     } catch (error) {
       toast({
-        title: "Error",
-        description: "An error occurred. Please try again.",
+        title: "Erro",
+        description: "Ocorreu um erro. Por favor, tente novamente.",
         variant: "destructive",
       })
     } finally {
@@ -79,8 +79,8 @@ export default function LoginPage() {
 
     if (!name || !email || !password) {
       toast({
-        title: "Error",
-        description: "Please fill in all fields",
+        title: "Erro",
+        description: "Por favor, preencha todos os campos",
         variant: "destructive",
       })
       return
@@ -101,23 +101,23 @@ export default function LoginPage() {
 
       if (response.ok) {
         toast({
-          title: "Success",
-          description: "Account created successfully. Please login.",
+          title: "Sucesso",
+          description: "Conta criada com sucesso. Por favor, faça login.",
         })
 
         setActiveTab("login")
         setPassword("")
       } else {
         toast({
-          title: "Error",
-          description: data.message || "Failed to create account",
+          title: "Erro",
+          description: data.message || "Falha ao criar conta",
           variant: "destructive",
         })
       }
     } catch (error) {
       toast({
-        title: "Error",
-        description: "An error occurred. Please try again.",
+        title: "Erro",
+        description: "Ocorreu um erro. Por favor, tente novamente.",
         variant: "destructive",
       })
     } finally {
@@ -129,14 +129,21 @@ export default function LoginPage() {
     <div className="flex items-center justify-center min-h-screen bg-gray-100 dark:bg-gray-900">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl">Real-Time Chat</CardTitle>
-          <CardDescription>Connect with friends and colleagues instantly</CardDescription>
+          <div className="flex items-center justify-center gap-3 mb-2">
+            <img 
+              src="/logo-saude-cred.png" 
+              alt="Saúde Cred Logo" 
+              className="h-12 w-12 rounded-full object-cover" 
+            />
+          </div>
+          <CardTitle className="text-2xl">C.Chat</CardTitle>
+          <CardDescription>Sistema de Comunicação Interna</CardDescription>
         </CardHeader>
         <CardContent>
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="login">Login</TabsTrigger>
-              <TabsTrigger value="register">Register</TabsTrigger>
+              <TabsTrigger value="login">Entrar</TabsTrigger>
+              <TabsTrigger value="register">Registrar</TabsTrigger>
             </TabsList>
 
             <TabsContent value="login">
@@ -146,23 +153,23 @@ export default function LoginPage() {
                   <Input
                     id="email"
                     type="email"
-                    placeholder="Enter your email"
+                    placeholder="Digite seu email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="password">Password</Label>
+                  <Label htmlFor="password">Senha</Label>
                   <Input
                     id="password"
                     type="password"
-                    placeholder="Enter your password"
+                    placeholder="Digite sua senha"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                   />
                 </div>
                 <Button type="submit" className="w-full" disabled={isLoading}>
-                  {isLoading ? "Logging in..." : "Login"}
+                  {isLoading ? "Entrando..." : "Entrar"}
                 </Button>
               </form>
             </TabsContent>
@@ -170,10 +177,10 @@ export default function LoginPage() {
             <TabsContent value="register">
               <form onSubmit={handleRegister} className="space-y-4 mt-4">
                 <div className="space-y-2">
-                  <Label htmlFor="name">Name</Label>
+                  <Label htmlFor="name">Nome</Label>
                   <Input
                     id="name"
-                    placeholder="Enter your name"
+                    placeholder="Digite seu nome"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                   />
@@ -183,23 +190,23 @@ export default function LoginPage() {
                   <Input
                     id="register-email"
                     type="email"
-                    placeholder="Enter your email"
+                    placeholder="Digite seu email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="register-password">Password</Label>
+                  <Label htmlFor="register-password">Senha</Label>
                   <Input
                     id="register-password"
                     type="password"
-                    placeholder="Create a password"
+                    placeholder="Crie uma senha"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                   />
                 </div>
                 <Button type="submit" className="w-full" disabled={isLoading}>
-                  {isLoading ? "Creating account..." : "Register"}
+                  {isLoading ? "Criando conta..." : "Registrar"}
                 </Button>
               </form>
             </TabsContent>
@@ -208,8 +215,8 @@ export default function LoginPage() {
         <CardFooter className="flex justify-center">
           <p className="text-sm text-gray-500">
             {activeTab === "login"
-              ? "Don't have an account? Register instead."
-              : "Already have an account? Login instead."}
+              ? "Não tem uma conta? Registre-se."
+              : "Já possui uma conta? Entre."}
           </p>
         </CardFooter>
       </Card>

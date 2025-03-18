@@ -2,9 +2,13 @@ import type { Metadata } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'v0 App',
-  description: 'Created with v0',
+  title: 'C.Chat | Sistema de Comunicação Interna',
+  description: 'Sistema de comunicação interna para equipes',
   generator: 'v0.dev',
+  icons: {
+    icon: '/logo-saude-cred.png',
+    apple: '/logo-saude-cred.png',
+  }
 }
 
 export default function RootLayout({
@@ -13,7 +17,10 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en">
+    <html lang="pt-BR">
+      <head>
+        <link rel="icon" href="/logo-saude-cred.png" />
+      </head>
       <body>{children}</body>
     </html>
   )
