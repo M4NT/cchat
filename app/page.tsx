@@ -1396,7 +1396,7 @@ export default function ChatApp() {
                 : chats
               ).map((chat) => (
                 <div
-                  key={chat.id}
+                  key={`chat-${chat.id}`}
                   className={cn(
                     "flex items-center justify-between p-3 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700",
                     activeChat?.id === chat.id && "bg-gray-100 dark:bg-gray-700"
@@ -1519,7 +1519,7 @@ export default function ChatApp() {
                   .filter(chat => chat.is_group)
                   .map((chat) => (
                   <div
-                    key={chat.id}
+                    key={`group-${chat.id}`}
                     className={`flex items-center space-x-3 p-3 rounded-lg cursor-pointer ${
                       activeChat?.id === chat.id ? "bg-gray-100 dark:bg-gray-800" : "hover:bg-gray-50 dark:hover:bg-gray-900"
                     }`}
