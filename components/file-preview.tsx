@@ -131,7 +131,7 @@ export default function FilePreview({ fileName, fileUrl, fileSize, className }: 
       <div className="flex items-center space-x-3">
         {getFileIcon(fileExtension)}
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium truncate">{fileName}</p>
+          <p className="text-sm font-medium truncate text-gray-900 dark:text-gray-100">{fileName}</p>
           <div className="flex items-center text-xs text-gray-500">
             <span className="mr-2">{getFileType(fileExtension)}</span>
             {fileSize && <span>• {formatFileSize(fileSize)}</span>}

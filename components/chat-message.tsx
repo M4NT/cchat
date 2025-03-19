@@ -413,40 +413,60 @@ export default function ChatMessage({
         )
 
       case "audio":
+        // Função para formatar o tempo no formato 0:SS (exatamente como solicitado)
+        const formatTime = (timeInSeconds: number) => {
+          // Arredonda para baixo para ter minutos inteiros
+          const minutes = Math.floor(timeInSeconds / 60);
+          // Arredonda para baixo para ter segundos inteiros
+          const seconds = Math.floor(timeInSeconds % 60);
+          // Formata como "0:SS" com zero à esquerda para segundos < 10
+          return `${minutes}:${seconds < 10 ? '0' + seconds : seconds}`;
+        };
+        
         return (
-          <div className="mt-2 bg-gray-50 dark:bg-gray-800 p-3 rounded-md">
+          <div className="mt-2 bg-gray-50 dark:bg-gray-800 p-3 rounded-md w-full max-w-[300px]">
             <div className="flex items-center space-x-3">
-              <button
-                onClick={handlePlayAudio}
-                className="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-white"
-              >
-                {isPlaying ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5" />}
-              </button>
+              <div className="flex-shrink-0">
+                {!isOwnMessage ? (
+                  <Avatar className="h-9 w-9">
+                    <AvatarImage src={message.sender.avatar || "/placeholder.svg?height=36&width=36"} />
+                    <AvatarFallback>{message.sender.name.charAt(0)}</AvatarFallback>
+                  </Avatar>
+                ) : (
+                  <button
+                    onClick={handlePlayAudio}
+                    className="w-9 h-9 rounded-full flex items-center justify-center text-gray-800 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                  >
+                    {isPlaying ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5 ml-0.5" />}
+                  </button>
+                )}
+              </div>
+              
+              {!isOwnMessage && (
+                <button
+                  onClick={handlePlayAudio}
+                  className="w-9 h-9 rounded-full flex items-center justify-center text-gray-800 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                >
+                  {isPlaying ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5 ml-0.5" />}
+                </button>
+              )}
 
               <div className="flex-1">
-                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5">
                   <div
-                    className="bg-primary h-2 rounded-full"
+                    className="bg-primary h-2.5 rounded-full"
                     style={{ width: `${audioProgress}%` }}
                   ></div>
                 </div>
 
-                <div className="flex justify-between mt-1">
-                  <span className="text-xs text-gray-700 dark:text-gray-400">
-                    {audioDuration
-                      ? `${Math.floor(
-                          (audioDuration * audioProgress) / 100 / 60
-                        )}:${Math.floor(
-                          ((audioDuration * audioProgress) / 100) % 60
-                        ).toString().padStart(2, "0")}`
-                      : "0:00"}
+                <div className="flex justify-between mt-1.5">
+                  <span className="text-xs font-medium text-gray-800 dark:text-gray-200">
+                    {isPlaying 
+                      ? formatTime((audioDuration * audioProgress) / 100) 
+                      : audioProgress > 0 ? formatTime((audioDuration * audioProgress) / 100) : "0:00"}
                   </span>
-                  <span className="text-xs text-gray-700 dark:text-gray-400">
-                    {audioDuration
-                      ? `${Math.floor(audioDuration / 60)}:${Math.floor(audioDuration % 60)
-                          .toString()
-                          .padStart(2, "0")}`
-                      : "0:00"}
+                  <span className="text-xs font-medium text-gray-800 dark:text-gray-200">
+                    {audioDuration ? formatTime(audioDuration) : "0:00"}
                   </span>
                 </div>
               </div>
@@ -490,22 +510,87 @@ export default function ChatMessage({
           return <div>Localização inválida</div>
         }
 
+        // Montar a URL do Google Maps
+        const googleMapsUrl = `https://www.google.com/maps?q=${location.latitude},${location.longitude}`;
+        // URL para a imagem estática do mapa
+        const mapImageUrl = `https://maps.googleapis.com/maps/api/staticmap?center=${location.latitude},${location.longitude}&zoom=15&size=600x300&maptype=roadmap&markers=color:red%7C${location.latitude},${location.longitude}&key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || ''}`;
+        
+        // Formatar o endereço com base nas informações disponíveis
+        const formatAddress = (location: any) => {
+          if (!location.address) return "Localização compartilhada";
+          
+          // Se o endereço já estiver formatado como string, exibir como está
+          if (typeof location.address === 'string') return location.address;
+          
+          // Se for um objeto com informações detalhadas
+          const address = location.address;
+          
+          // Exemplo de formato: Rua José Cupertino, 257 - Centro / Monte Alto - SP
+          let formattedAddress = "Localização compartilhada\n";
+          
+          // Rua e número
+          if (address.street) {
+            formattedAddress += address.street;
+            if (address.number) formattedAddress += `, ${address.number}`;
+          }
+          
+          // Bairro
+          if (address.neighborhood) {
+            formattedAddress += ` - ${address.neighborhood}`;
+          }
+          
+          // Cidade e Estado
+          if (address.city || address.state) {
+            formattedAddress += " / ";
+            if (address.city) formattedAddress += address.city;
+            if (address.city && address.state) formattedAddress += " - ";
+            if (address.state) formattedAddress += address.state;
+          }
+          
+          return formattedAddress;
+        };
+
         return (
           <div className="mt-2">
             <div
-              className="bg-gray-50 dark:bg-gray-800 p-3 rounded-md cursor-pointer border border-gray-200 dark:border-gray-700"
-              onClick={() => setShowMap(!showMap)}
+              className="bg-gray-50 dark:bg-gray-800 p-3 rounded-md border border-gray-200 dark:border-gray-700"
             >
-              <div className="flex items-center space-x-2">
-                <MapPin className="h-5 w-5 text-red-500" />
-                <span className="text-gray-800 dark:text-gray-300">{location.address || "Localização compartilhada"}</span>
+              <div className="flex items-start space-x-2 mb-2">
+                <MapPin className="h-5 w-5 text-red-500 mt-0.5" />
+                <div className="flex flex-col">
+                  <span className="text-gray-800 dark:text-gray-300 font-medium">Localização compartilhada</span>
+                  {formatAddress(location) !== "Localização compartilhada" && formatAddress(location) !== "Localização compartilhada\n" && (
+                    <span className="text-gray-600 dark:text-gray-400 text-sm">
+                      {formatAddress(location).replace("Localização compartilhada\n", "")}
+                    </span>
+                  )}
+                </div>
               </div>
-              {showMap && (
-                <div
-                  ref={mapRef}
-                  className="h-40 bg-gray-200 dark:bg-gray-700 rounded-md mt-2"
-                ></div>
-              )}
+              
+              <a 
+                href={googleMapsUrl} 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="block rounded-md overflow-hidden hover:opacity-90 transition-opacity"
+              >
+                {/* Imagem estática do mapa - fallback para quando a API key não estiver disponível */}
+                {!process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ? (
+                  <div 
+                    className="h-36 bg-gray-200 dark:bg-gray-700 rounded-md flex items-center justify-center"
+                  >
+                    <div className="text-center">
+                      <MapPin className="h-8 w-8 text-gray-400 dark:text-gray-500 mx-auto mb-2" />
+                      <p className="text-sm text-gray-500 dark:text-gray-400">Clique para abrir no Google Maps</p>
+                    </div>
+                  </div>
+                ) : (
+                  <img 
+                    src={mapImageUrl}
+                    alt="Mapa da localização"
+                    className="w-full h-36 object-cover rounded-md"
+                  />
+                )}
+              </a>
             </div>
           </div>
         )
