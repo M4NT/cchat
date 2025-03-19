@@ -125,15 +125,23 @@ export default function ChatMessage({
 
   // Processar dados adicionais para links
   useEffect(() => {
-    if (message.type === 'link' && message.content) {
+    if (!message) return;
+    
+    console.log("Processando mensagem:", message.id, "Tipo:", message.type, "Tipo estrito:", typeof message.type, "Igualdade:", message.type === 'link');
+    
+    // Verificar e garantir que o tipo seja tratado como string
+    const messageType = String(message.type).toLowerCase();
+    
+    if (messageType === 'link' && message.content) {
       try {
         const data = JSON.parse(message.content);
+        console.log("Dados do link processados:", data);
         setLinkData(data);
       } catch (error) {
         console.error("Erro ao processar link:", error);
       }
     }
-  }, [message.type, message.content]);
+  }, [message]);
 
   // Process markdown and mentions
   const processContent = (content: string) => {
@@ -369,29 +377,17 @@ export default function ChatMessage({
     )
   }
 
-  const renderLinkPreview = () => {
-    if (!linkData) return null;
-    
-    return (
-      <a 
-        href={linkData.url} 
-        target="_blank" 
-        rel="noopener noreferrer"
-        className="block no-underline p-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-750 transition-colors mt-2"
-      >
-        <div className="flex items-center space-x-3">
-          <LinkIcon className="h-10 w-10 text-blue-500 flex-shrink-0" />
-          <div className="flex-1 min-w-0">
-            <p className="font-medium text-sm text-primary">{linkData.title || linkData.url}</p>
-            <p className="text-xs text-gray-500 truncate">{linkData.url}</p>
-          </div>
-        </div>
-      </a>
-    );
-  };
-
   const renderMessageContent = () => {
-    switch (message.type) {
+    // Garantir que o tipo seja uma string para comparação segura
+    const messageType = String(message.type).toLowerCase();
+    
+    console.log("Renderizando mensagem ID:", message.id, "Tipo:", messageType, "Conteúdo:", 
+      typeof message.content === 'string' && message.content.length > 100 
+        ? message.content.substring(0, 100) + '...' 
+        : message.content
+    );
+    
+    switch (messageType) {
       case "text":
         return (
           <div
@@ -499,7 +495,66 @@ export default function ChatMessage({
         )
 
       case "link":
-        return renderLinkPreview()
+        // Abordagem muito simples: para mensagens do tipo 'link', sempre renderizamos como link
+        console.log("[DEBUG] Renderizando mensagem de tipo LINK (forçado)");
+        
+        try {
+          if (!message.content) {
+            console.error("[DEBUG] Conteúdo de link vazio");
+            return <div>Link inválido (sem conteúdo)</div>;
+          }
+          
+          // Extrair dados do link do conteúdo
+          let url = "";
+          let title = "Link compartilhado";
+          let urls: string[] = [];
+          
+          try {
+            if (typeof message.content === 'string' && (message.content.startsWith('{') || message.content.startsWith('['))) {
+              // Tentar parsear como JSON
+              const linkData = JSON.parse(message.content);
+              url = linkData.url || "";
+              title = linkData.title || url || "Link compartilhado";
+              
+              // Montar lista de URLs
+              urls = [url];
+              if (linkData.additionalUrls && Array.isArray(linkData.additionalUrls)) {
+                urls = [...urls, ...linkData.additionalUrls];
+              }
+            } else {
+              // Se não for JSON, usar o conteúdo diretamente como URL
+              url = message.content;
+              urls = [url];
+            }
+          } catch (error) {
+            console.error("[DEBUG] Erro ao processar conteúdo do link:", error);
+            url = typeof message.content === 'string' ? message.content : "";
+            urls = [url];
+          }
+          
+          // Se não temos URL, não temos como mostrar o link
+          if (!url) {
+            console.error("[DEBUG] URL não encontrada no conteúdo");
+            return <div>Link inválido (URL ausente)</div>;
+          }
+          
+          console.log("[DEBUG] Renderizando link com isLink=true:", { url, title, urlCount: urls.length });
+          
+          // Sempre forçar isLink=true para mensagens do tipo 'link'
+          return (
+            <div className="mt-2">
+              <FilePreview 
+                fileName={title}
+                fileUrl={url}
+                isLink={true} // Forçar isLink=true
+                linkUrls={urls}
+              />
+            </div>
+          );
+        } catch (error) {
+          console.error("[DEBUG] Erro ao processar mensagem de link:", error);
+          return <div>Erro ao processar link</div>;
+        }
 
       case "location":
         let location

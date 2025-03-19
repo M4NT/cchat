@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS messages (
   chat_id INT NOT NULL,
   sender_id INT NOT NULL,
   content TEXT NOT NULL,
-  type ENUM('text', 'image', 'audio', 'file') DEFAULT 'text',
+  type ENUM('text', 'image', 'audio', 'file', 'location', 'poll', 'link') DEFAULT 'text',
   is_read BOOLEAN DEFAULT FALSE,
   reply_to INT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

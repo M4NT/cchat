@@ -1859,17 +1859,81 @@ export default function ChatApp() {
           chatId={activeChat.id}
           senderId={user.id}
           onClose={() => setIsUploading(false)}
-          onUploadComplete={(fileUrl, fileType, fileName) => {
+          onUploadComplete={(fileData: any) => {
             if (socket && activeChat) {
-              socket.emit("message:send", {
-                chatId: activeChat.id,
-                sender: user,
-                content: fileUrl,
-                timestamp: new Date().toISOString(),
-                type: fileType.startsWith("image/") ? "image" : "file",
-                fileName,
-                replyTo: replyingTo,
-              });
+              console.log("[DEBUG] Recebendo dados para envio:", fileData);
+              
+              // Verificar se está recebendo um objeto com dados completos (novo formato)
+              if (typeof fileData === 'object' && fileData.fileType) {
+                // Usar novo formato
+                const messageType = fileData.fileType === "link" ? "link" : 
+                                   fileData.fileType.startsWith("image/") ? "image" : "file";
+                
+                console.log("[DEBUG] Usando novo formato para", messageType);
+                
+                // Para links, usamos um formato especial
+                if (messageType === "link") {
+                  const messageData = {
+                    chatId: activeChat.id,
+                    sender: user,
+                    content: fileData.content || fileData.fileUrl,
+                    timestamp: new Date().toISOString(),
+                    type: "link",
+                    fileName: fileData.fileName || "Link compartilhado",
+                    replyTo: replyingTo,
+                    isLink: true
+                  };
+                  
+                  console.log("[DEBUG] Enviando mensagem de link:", {
+                    ...messageData,
+                    content: typeof messageData.content === 'string' ? 
+                      (messageData.content.substring(0, 50) + "...") : "objeto"
+                  });
+                  
+                  socket.emit("message:send", messageData);
+                } else {
+                  // Para outros tipos, usamos o formato padrão
+                  const messageData = {
+                    chatId: activeChat.id,
+                    sender: user,
+                    content: fileData.fileUrl,
+                    timestamp: new Date().toISOString(),
+                    type: messageType,
+                    fileName: fileData.fileName,
+                    replyTo: replyingTo,
+                  };
+                  
+                  socket.emit("message:send", messageData);
+                }
+              } else {
+                // Formato antigo (para compatibilidade)
+                const fileUrl = fileData;
+                const fileType = arguments[1];
+                const fileName = arguments[2];
+                
+                // Determinar o tipo correto de mensagem
+                let messageType = "file";
+                
+                if (fileType.startsWith("image/")) {
+                  messageType = "image";
+                } else if (fileType === "link") {
+                  messageType = "link";
+                  console.log("[DEBUG] Formato antigo, enviando link:", fileUrl.substring(0, 50) + "...");
+                }
+                
+                const messageData = {
+                  chatId: activeChat.id,
+                  sender: user,
+                  content: fileUrl,
+                  timestamp: new Date().toISOString(),
+                  type: messageType,
+                  fileName,
+                  replyTo: replyingTo,
+                  ...(messageType === "link" ? { isLink: true } : {})
+                };
+                
+                socket.emit("message:send", messageData);
+              }
 
               // Reproduce send sound
               if (sendMessageSound.current) {

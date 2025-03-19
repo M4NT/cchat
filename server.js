@@ -126,7 +126,7 @@ async function initDatabase() {
         chat_id INT NOT NULL,
         sender_id INT NOT NULL,
         content TEXT NOT NULL,
-        type ENUM('text', 'image', 'audio', 'file', 'location', 'poll') DEFAULT 'text',
+        type ENUM('text', 'image', 'audio', 'file', 'location', 'poll', 'link') DEFAULT 'text',
         is_read BOOLEAN DEFAULT FALSE,
         reply_to INT,
         additional_data TEXT,
@@ -175,6 +175,23 @@ async function initDatabase() {
 
 // Initialize database
 initDatabase().catch(console.error)
+
+// Alteração adicional para permitir o tipo 'link' na tabela mensagens
+async function updateMessageTypes() {
+  try {
+    console.log("Tentando atualizar a tabela de mensagens para suportar o tipo 'link'...");
+    await pool.execute(`
+      ALTER TABLE messages 
+      MODIFY COLUMN type ENUM('text', 'image', 'audio', 'file', 'location', 'poll', 'link') DEFAULT 'text'
+    `);
+    console.log("Tabela de mensagens atualizada com sucesso!");
+  } catch (error) {
+    console.error("Erro ao atualizar tabela de mensagens:", error.message);
+  }
+}
+
+// Executar atualização
+updateMessageTypes().catch(console.error);
 
 // Initialize Socket.io
 const io = new Server(server, {
@@ -461,7 +478,8 @@ io.on("connection", (socket) => {
   // Send message
   socket.on("message:send", async (message) => {
     try {
-      console.log("Recebendo mensagem para enviar:", message);
+      console.log("[DEBUG] Recebendo mensagem para enviar:", message);
+      console.log("[DEBUG] Tipo da mensagem:", message.type, "É link?", message.type === 'link', "isLink flag:", message.isLink);
 
       // Garantir que temos um sender válido
       if (!message.sender || !message.sender.id) {
@@ -491,10 +509,33 @@ io.on("connection", (socket) => {
         additionalData = {
           fileName: message.fileName || "File"
         };
+      } else if (message.type === "link") {
+        console.log("[DEBUG] Processando mensagem do tipo LINK no servidor:", message.content);
+        additionalData = {
+          fileName: message.fileName || "Link compartilhado",
+          isLink: true // Sempre definimos isLink como true para mensagens de tipo 'link'
+        };
+
+        // Verificar se a mensagem tem a propriedade isLink explícita
+        if (message.isLink !== undefined) {
+          additionalData.isLink = Boolean(message.isLink);
+          console.log("[DEBUG] Preservando flag isLink como:", additionalData.isLink);
+        }
+        
+        // Não modifica content, pois ele contém o JSON do link
       }
       
       // Construir a coluna de conteúdo
       let content = message.content;
+      
+      console.log("Preparando para salvar mensagem no banco:", {
+        chatId: message.chatId,
+        senderId: message.sender.id,
+        content: typeof content === 'string' && content.length > 100 ? content.substring(0, 100) + '...' : content,
+        type: message.type,
+        replyTo: message.replyTo ? message.replyTo.id : null,
+        additionalData: additionalData
+      });
       
       // Save message to database
       const [result] = await pool.execute(
@@ -532,6 +573,10 @@ io.on("connection", (socket) => {
       console.log("Enviando mensagem para o chat:", message.chatId);
 
       // Broadcast message to all users in the chat
+      console.log("[DEBUG] Enviando mensagem para o chat:", message.chatId, 
+        "Tipo:", newMessage.type, 
+        "AdditionalData:", additionalData);
+      
       io.to(`chat:${message.chatId}`).emit("message:new", newMessage);
     } catch (error) {
       console.error("Error in message:send:", error);

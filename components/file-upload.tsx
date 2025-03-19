@@ -23,10 +23,21 @@ import {
 import { useToast } from "@/hooks/use-toast"
 
 interface FileUploadProps {
-  chatId?: string
-  senderId?: string
+  chatId: string
+  senderId: string
   onClose: () => void
-  onUploadComplete: (fileUrl: string, fileType: string, fileName: string) => void
+  onUploadComplete: (
+    fileData: { 
+      fileUrl: string; 
+      content?: string; 
+      fileType: string; 
+      fileName: string; 
+      title?: string;
+      isLink?: boolean;
+    } | string, 
+    fileType?: string, 
+    fileName?: string
+  ) => void
 }
 
 export default function FileUpload({ chatId, senderId, onClose, onUploadComplete }: FileUploadProps) {
@@ -39,6 +50,8 @@ export default function FileUpload({ chatId, senderId, onClose, onUploadComplete
   const [linkTitle, setLinkTitle] = useState("")
   const [isValidatingLink, setIsValidatingLink] = useState(false)
   const [linkPreview, setLinkPreview] = useState<any>(null)
+  const [additionalLinks, setAdditionalLinks] = useState<string[]>([])
+  const [currentAdditionalLink, setCurrentAdditionalLink] = useState("")
   const fileInputRef = useRef<HTMLInputElement>(null)
   const { toast } = useToast()
 
@@ -117,30 +130,31 @@ export default function FileUpload({ chatId, senderId, onClose, onUploadComplete
     setIsUploading(true);
     
     try {
-      // Você pode implementar uma API para validar e obter metadados do link
-      // (título, descrição, imagem, etc.)
-      // Aqui vamos simular que o link foi processado com sucesso
-      
-      // No mundo real, essa seria uma chamada a uma API que faria um scraping da página
-      // e retornaria os metadados
-      // const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/validate-link`, {
-      //   method: "POST",
-      //   headers: {
-      //     "Content-Type": "application/json",
-      //   },
-      //   body: JSON.stringify({ url: linkUrl }),
-      // });
-      // const data = await response.json();
-      
-      // Por enquanto, vamos apenas enviar o link como uma mensagem especial
+      // Criar um objeto simplificado de link
       const linkData = {
         url: linkUrl,
         title: linkTitle || linkUrl,
+        additionalUrls: additionalLinks.length > 0 ? additionalLinks : undefined
       };
       
+      // Serializar para JSON
       const linkJson = JSON.stringify(linkData);
       
-      onUploadComplete(linkJson, "link", linkTitle || "Link compartilhado");
+      console.log("[DEBUG] Enviando link com dados:", linkData);
+      
+      // Usar uma flag especial para forçar a interpretação como link
+      const fileType = "link";
+      const fileName = linkTitle || "Link compartilhado";
+      
+      // IMPORTANTE: Forçamos isLink como true aqui
+      onUploadComplete({
+        content: linkJson,
+        fileUrl: linkJson,
+        title: fileName,
+        fileType: fileType,
+        fileName: fileName,
+        isLink: true // Adicionando uma flag explícita
+      });
     } catch (error) {
       console.error("Error processing link:", error);
       toast({
@@ -203,6 +217,35 @@ export default function FileUpload({ chatId, senderId, onClose, onUploadComplete
     } finally {
       setIsValidatingLink(false);
     }
+  };
+
+  const addAdditionalLink = () => {
+    if (!currentAdditionalLink) return;
+    
+    // Validação simples de URL
+    const urlPattern = /^(https?:\/\/)?([\w-]+(\.[\w-]+)+)([\w.,@?^=%&:/~+#-]*[\w@?^=%&/~+#-])?$/;
+    if (urlPattern.test(currentAdditionalLink)) {
+      // Se o URL não começa com http:// ou https://, adicionamos https://
+      let fullUrl = currentAdditionalLink;
+      if (!fullUrl.startsWith('http://') && !fullUrl.startsWith('https://')) {
+        fullUrl = 'https://' + fullUrl;
+      }
+      
+      setAdditionalLinks([...additionalLinks, fullUrl]);
+      setCurrentAdditionalLink("");
+    } else {
+      toast({
+        title: "URL inválido",
+        description: "Por favor, insira um URL válido",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const removeAdditionalLink = (index: number) => {
+    const newLinks = [...additionalLinks];
+    newLinks.splice(index, 1);
+    setAdditionalLinks(newLinks);
   };
 
   const getFileIcon = (type: string) => {
@@ -289,25 +332,49 @@ export default function FileUpload({ chatId, senderId, onClose, onUploadComplete
   const renderLinkPreview = () => {
     if (!linkPreview) return null;
     
+    const allLinks = [linkPreview.url, ...additionalLinks];
+    
     return (
-      <div className="flex items-center space-x-3 p-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md mt-4">
-        <LinkIcon className="h-10 w-10 text-blue-500" />
-        <div className="flex-1">
-          <p className="font-medium">{linkPreview.title || linkPreview.url}</p>
-          <p className="text-sm text-gray-500 truncate">{linkPreview.url}</p>
+      <div className="space-y-3 mt-4">
+        <div className="flex items-center space-x-3 p-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md">
+          <LinkIcon className="h-10 w-10 text-blue-500" />
+          <div className="flex-1">
+            <p className="font-medium">{linkPreview.title || linkPreview.url}</p>
+            <p className="text-sm text-gray-500 truncate">{linkPreview.url}</p>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="ml-auto"
+            onClick={() => {
+              setLinkPreview(null);
+              setLinkUrl("");
+              setLinkTitle("");
+              setAdditionalLinks([]);
+            }}
+          >
+            <X className="h-4 w-4" />
+          </Button>
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="ml-auto"
-          onClick={() => {
-            setLinkPreview(null);
-            setLinkUrl("");
-            setLinkTitle("");
-          }}
-        >
-          <X className="h-4 w-4" />
-        </Button>
+        
+        {additionalLinks.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-sm font-medium">Links adicionais:</p>
+            {additionalLinks.map((link, index) => (
+              <div key={index} className="flex items-center space-x-2">
+                <p className="text-sm flex-1 truncate">{link}</p>
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  className="h-6 w-6" 
+                  onClick={() => removeAdditionalLink(index)}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     );
   };
@@ -372,15 +439,37 @@ export default function FileUpload({ chatId, senderId, onClose, onUploadComplete
               </div>
               
               {linkPreview && (
-                <div className="space-y-2">
-                  <Label htmlFor="link-title">Título do Link (opcional)</Label>
-                  <Input
-                    id="link-title"
-                    placeholder="Título do link"
-                    value={linkTitle}
-                    onChange={(e) => setLinkTitle(e.target.value)}
-                  />
-                </div>
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="link-title">Título do Link (opcional)</Label>
+                    <Input
+                      id="link-title"
+                      placeholder="Título do link"
+                      value={linkTitle}
+                      onChange={(e) => setLinkTitle(e.target.value)}
+                    />
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label htmlFor="additional-link">Links adicionais (opcional)</Label>
+                    <div className="flex space-x-2">
+                      <Input
+                        id="additional-link"
+                        placeholder="https://outro-exemplo.com"
+                        value={currentAdditionalLink}
+                        onChange={(e) => setCurrentAdditionalLink(e.target.value)}
+                        className="flex-1"
+                      />
+                      <Button 
+                        variant="outline"
+                        onClick={addAdditionalLink}
+                        disabled={!currentAdditionalLink}
+                      >
+                        Adicionar
+                      </Button>
+                    </div>
+                  </div>
+                </>
               )}
               
               {renderLinkPreview()}
