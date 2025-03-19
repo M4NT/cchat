@@ -65,6 +65,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import Image from "next/image"
 import CreatePoll from "@/components/create-poll"
 import FilePreview from "@/components/file-preview"
+// Importar o componente VersionsDialog
+import { VersionsDialog } from "@/components/versions-dialog"
 
 interface User {
   id: string
@@ -1381,7 +1383,8 @@ export default function ChatApp() {
               <p className="text-xs text-gray-500">{user?.email}</p>
             </div>
           </div>
-          <div className="flex items-center">
+          <div className="flex items-center gap-1">
+            <VersionsDialog />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon" aria-label="Menu de opções">
