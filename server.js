@@ -25,10 +25,12 @@ app.use(cors({
 }))
 app.use(express.json())
 app.use("/uploads", express.static(path.join(__dirname, "uploads")))
+app.use("/uploads/user_avatars", express.static(path.join(__dirname, "uploads", "user_avatars"))) // Rota específica para avatares de usuários
 
 // Diretórios para upload de arquivos
 const uploadsDir = path.join(__dirname, "uploads")
 const avatarsDir = path.join(uploadsDir, "avatars")
+const userAvatarsDir = path.join(uploadsDir, "user_avatars") // Nova pasta específica para avatares de usuários
 const filesDir = path.join(uploadsDir, "files")
 const groupsDir = path.join(uploadsDir, "groups")
 const audioDir = path.join(uploadsDir, "audio")
@@ -36,6 +38,7 @@ const audioDir = path.join(uploadsDir, "audio")
 // Criar diretórios se não existirem
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir)
 if (!fs.existsSync(avatarsDir)) fs.mkdirSync(avatarsDir)
+if (!fs.existsSync(userAvatarsDir)) fs.mkdirSync(userAvatarsDir) // Criar pasta específica para avatares de usuários
 if (!fs.existsSync(filesDir)) fs.mkdirSync(filesDir)
 if (!fs.existsSync(groupsDir)) fs.mkdirSync(groupsDir)
 if (!fs.existsSync(audioDir)) fs.mkdirSync(audioDir)
@@ -43,12 +46,12 @@ if (!fs.existsSync(audioDir)) fs.mkdirSync(audioDir)
 // Set up multer storage
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const isAvatar = req.path.includes("avatar")
+    const isUserAvatar = req.path.includes("users/avatar")
     const isGroupAvatar = req.path.includes("groups/avatar")
     const isAudio = req.path.includes("audio")
     
-    if (isAvatar) {
-      cb(null, avatarsDir)
+    if (isUserAvatar) {
+      cb(null, userAvatarsDir) // Usar a nova pasta para avatares de usuários
     } else if (isGroupAvatar) {
       cb(null, groupsDir)
     } else if (isAudio) {
@@ -1839,8 +1842,8 @@ app.post("/api/users/avatar", upload.single("file"), async (req, res) => {
 
     // Optimize image
     const timestamp = Date.now();
-    const optimizedFilename = `optimized-${timestamp}${fileExtension}`;
-    const optimizedPath = path.join(avatarsDir, optimizedFilename);
+    const optimizedFilename = `user-${userId}-${timestamp}${fileExtension}`; // Inclui userId no nome do arquivo
+    const optimizedPath = path.join(userAvatarsDir, optimizedFilename); // Usar a pasta de avatares de usuários
 
     // Processa a imagem de acordo com o formato
     let sharpInstance = sharp(req.file.path).resize(200, 200);
@@ -1867,7 +1870,7 @@ app.post("/api/users/avatar", upload.single("file"), async (req, res) => {
       // Continua a execução mesmo se não conseguir excluir o arquivo original
     }
 
-    const fileUrl = `${req.protocol}://${req.get("host")}/uploads/avatars/${optimizedFilename}`;
+    const fileUrl = `${req.protocol}://${req.get("host")}/uploads/user_avatars/${optimizedFilename}`; // URL atualizado
     console.log(`URL do avatar gerada: ${fileUrl}`);
 
     res.json({
