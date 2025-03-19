@@ -384,42 +384,58 @@ export default function ChatMessage({
           return `${minutes}:${secs < 10 ? '0' : ''}${secs}`;
         };
         
+        // Função para baixar o áudio
+        const downloadAudio = async () => {
+          try {
+            const response = await fetch(message.content);
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = url;
+            a.download = message.fileName || 'audio.mp3';
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+          } catch (error) {
+            console.error('Erro ao baixar áudio:', error);
+          }
+        };
+        
         return (
-          <div className="flex flex-col space-y-2 mt-2 w-full max-w-[250px]">
-            <div className="flex items-center space-x-2">
+          <div className="flex flex-col mt-1 w-full max-w-[300px]">
+            <div className="flex items-center space-x-3">
               <Button 
-                variant="outline" 
                 size="icon" 
                 onClick={handlePlayAudio}
-                className="h-8 w-8 flex-shrink-0"
+                className="h-10 w-10 flex-shrink-0 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 border-none shadow-sm"
+                variant="default"
               >
-                {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                {isPlaying ? 
+                  <Pause className="h-5 w-5" /> : 
+                  <Play className="h-5 w-5 ml-0.5" />
+                }
               </Button>
               
-              <div className="flex-1 h-10 bg-gray-200 dark:bg-gray-700 rounded-md relative overflow-hidden">
-                {/* Barra de progresso */}
-                <div 
-                  className="absolute left-0 top-0 bottom-0 bg-primary/60 transition-all duration-300" 
-                  style={{ width: `${audioProgress}%` }}
-                />
-                
-                <div className="absolute inset-0 flex flex-col items-center justify-center px-2">
-                  <span className="text-xs font-medium">Mensagem de áudio</span>
-                  <span className="text-xs">
+              <div className="flex-1 min-h-[46px] bg-gray-100 dark:bg-gray-800 rounded-lg px-3 py-2">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-xs font-medium">
+                    {isOwnMessage ? "Seu áudio" : "Mensagem de áudio"}
+                  </span>
+                  <span className="text-xs text-gray-500 dark:text-gray-400">
                     {audioDuration ? formatTime(audioDuration) : "--:--"}
                   </span>
                 </div>
+                
+                {/* Barra de progresso com melhor visual */}
+                <div className="h-2 w-full bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                  <div 
+                    className="h-full bg-primary transition-all duration-300" 
+                    style={{ width: `${audioProgress}%` }}
+                  />
+                </div>
               </div>
-              
-              <Button 
-                variant="outline" 
-                size="icon" 
-                onClick={() => window.open(message.content, "_blank")}
-                className="h-8 w-8 flex-shrink-0"
-                title="Baixar áudio"
-              >
-                <Download className="h-4 w-4" />
-              </Button>
             </div>
             
             {/* Elemento de áudio invisível para carregar os metadados */}
@@ -485,14 +501,14 @@ export default function ChatMessage({
     <div
       id={`message-${message.id}`}
       className={cn(
-        "flex items-start space-x-2 transition-colors duration-300 group",
+        "flex items-start space-x-3 transition-colors duration-300 group mb-4",
         isOwnMessage ? "flex-row-reverse space-x-reverse" : "flex-row",
         message.isPinned && "bg-yellow-50 dark:bg-yellow-900/20 p-2 rounded-lg",
       )}
     >
       {!isOwnMessage && (
-        <Avatar className="h-8 w-8">
-          <AvatarImage src={message.sender.avatar || "/placeholder.svg?height=32&width=32"} />
+        <Avatar className="h-10 w-10 mt-1">
+          <AvatarImage src={message.sender.avatar || "/placeholder.svg?height=40&width=40"} />
           <AvatarFallback>{message.sender.name.charAt(0)}</AvatarFallback>
         </Avatar>
       )}
@@ -551,6 +567,29 @@ export default function ChatMessage({
                   <DropdownMenuItem onClick={() => handleFilePreview(message)}>
                     <FileText className="h-4 w-4 mr-2" />
                     Visualizar
+                  </DropdownMenuItem>
+                )}
+
+                {message.type === "audio" && (
+                  <DropdownMenuItem onClick={async () => {
+                    try {
+                      const response = await fetch(message.content);
+                      const blob = await response.blob();
+                      const url = window.URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.style.display = 'none';
+                      a.href = url;
+                      a.download = message.fileName || 'audio.mp3';
+                      document.body.appendChild(a);
+                      a.click();
+                      window.URL.revokeObjectURL(url);
+                      document.body.removeChild(a);
+                    } catch (error) {
+                      console.error('Erro ao baixar áudio:', error);
+                    }
+                  }}>
+                    <Download className="h-4 w-4 mr-2" />
+                    Baixar áudio
                   </DropdownMenuItem>
                 )}
 

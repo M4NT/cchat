@@ -484,11 +484,9 @@ io.on("connection", (socket) => {
       let additionalData = null;
       
       if (message.type === "audio") {
-        console.log("Processando mensagem de áudio");
         additionalData = {
           fileName: message.fileName || "Audio Recording"
         };
-        console.log("Dados adicionais de áudio:", additionalData);
       } else if (message.type === "file") {
         additionalData = {
           fileName: message.fileName || "File"
@@ -497,10 +495,6 @@ io.on("connection", (socket) => {
       
       // Construir a coluna de conteúdo
       let content = message.content;
-      
-      // Preparar additional_data para insert
-      const additionalDataJSON = additionalData ? JSON.stringify(additionalData) : null;
-      console.log("JSON de dados adicionais:", additionalDataJSON);
       
       // Save message to database
       const [result] = await pool.execute(
@@ -511,7 +505,7 @@ io.on("connection", (socket) => {
           content,
           message.type || "text",
           message.replyTo ? message.replyTo.id : null,
-          additionalDataJSON
+          additionalData ? JSON.stringify(additionalData) : null
         ]
       );
 
@@ -532,7 +526,7 @@ io.on("connection", (socket) => {
           is_online: Boolean(sender.is_online)
         },
         replyTo: message.replyTo,
-        fileName: message.fileName // Adicionar fileName diretamente para compatibilidade
+        additionalData: additionalData
       };
 
       console.log("Enviando mensagem para o chat:", message.chatId);
@@ -1365,17 +1359,15 @@ app.post("/api/upload/audio", upload.single("audio"), async (req, res) => {
     }
 
     console.log("Recebendo upload de áudio:", req.file);
-    
-    // Garantindo que o caminho está correto
-    const fileName = req.file.filename;
-    const fileUrl = `${req.protocol}://${req.get("host")}/uploads/audio/${fileName}`;
+
+    const fileUrl = `${req.protocol}://${req.get("host")}/uploads/audio/${req.file.filename}`
 
     console.log("URL do áudio gerada:", fileUrl);
 
     res.json({
       message: "Áudio enviado com sucesso",
       audioUrl: fileUrl,
-      filename: fileName,
+      filename: req.file.filename,
     })
   } catch (error) {
     console.error("Erro ao fazer upload do áudio:", error)
