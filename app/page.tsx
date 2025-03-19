@@ -32,6 +32,7 @@ import {
   Download,
   Menu,
   ChevronLeft,
+  FileAudio,
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import ChatMessage from "@/components/chat-message"
@@ -115,7 +116,8 @@ export default function ChatApp() {
   const [inputMessage, setInputMessage] = useState("")
   const [socket, setSocket] = useState<Socket | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const notificationSound = useRef<HTMLAudioElement>(null)
+  const notificationSound = useRef<HTMLAudioElement | null>(null)
+  const sendMessageSound = useRef<HTMLAudioElement | null>(null)
   const [isSearching, setIsSearching] = useState(false)
   const [replyingTo, setReplyingTo] = useState<any>(null)
   const [reactingTo, setReactingTo] = useState<any>(null)
@@ -254,14 +256,18 @@ export default function ChatApp() {
 
       // Notifica se não estiver no chat ativo
       if (String(newMessage.chatId) !== String(activeChat?.id) && !mutedChats.includes(String(newMessage.chatId))) {
+        // Tocar som de notificação
         if (notificationSound.current) {
-          notificationSound.current.play()
+          // Reinicia o áudio antes de reproduzir para garantir que funcione mesmo para mensagens em sequência
+          notificationSound.current.currentTime = 0;
+          notificationSound.current.play().catch(err => console.error("Erro ao reproduzir som de notificação:", err));
         }
 
+        // Toast de notificação
         const isMentioned = newMessage.content.includes(`@${user?.name}`)
         toast({
           title: isMentioned ? "🔔 Você foi mencionado!" : "Nova Mensagem",
-          description: `${newMessage.sender.name}: ${newMessage.content.substring(0, 30)}${newMessage.content.length > 30 ? "..." : ""}`,
+          description: `${newMessage.sender.name}: ${newMessage.type === 'audio' ? "Mensagem de áudio" : newMessage.content.substring(0, 30)}${newMessage.type !== 'audio' && newMessage.content.length > 30 ? "..." : ""}`,
           action: (
             <Button
               variant="outline"
@@ -502,6 +508,12 @@ export default function ChatApp() {
     }
   }, [user])
 
+  // Adicionar referência para o áudio de envio de mensagem (já existe um para notificação)
+  useEffect(() => {
+    notificationSound.current = new Audio("/sounds/pop-sound.mp3")
+    sendMessageSound.current = new Audio("/sounds/send-message.mp3")
+  }, [])
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }
@@ -700,7 +712,7 @@ export default function ChatApp() {
         chatId: String(activeChat.id),
         sender: {
           id: String(user?.id),
-          name: user?.name, 
+          name: user?.name,
           avatar: user?.avatar
         },
         content,
@@ -713,6 +725,12 @@ export default function ChatApp() {
       console.log("Enviando mensagem:", newMessage); // Depuração
       
       socket.emit("message:send", newMessage)
+      
+      // Reproduce send sound
+      if (sendMessageSound.current) {
+        sendMessageSound.current.play()
+      }
+
       setInputMessage("")
       setReplyingTo(null)
       setQuotePreview(null)
@@ -1329,7 +1347,16 @@ export default function ChatApp() {
                         {chat.pinnedMessages?.length > 0 && <Pin className="h-3 w-3 ml-1 text-yellow-500" />}
                       </div>
                       <p className="text-xs text-gray-500 dark:text-gray-400 truncate w-40">
-                        {chat.lastMessage?.content || "Nenhuma mensagem ainda"}
+                        {chat.lastMessage ? (
+                          chat.lastMessage.type === 'audio' ? (
+                            <span className="flex items-center">
+                              <FileAudio className="h-3 w-3 mr-1 text-green-500" />
+                              <span>Áudio</span>
+                            </span>
+                          ) : (
+                            chat.lastMessage.content
+                          )
+                        ) : "Nenhuma mensagem ainda"}
                       </p>
                     </div>
                   </div>
@@ -1443,7 +1470,16 @@ export default function ChatApp() {
                         </Button>
                       </div>
                       <p className="text-sm text-gray-500 truncate dark:text-gray-400">
-                        {chat.lastMessage ? chat.lastMessage.content : "Nenhuma mensagem"}
+                        {chat.lastMessage ? (
+                          chat.lastMessage.type === 'audio' ? (
+                            <span className="flex items-center">
+                              <FileAudio className="h-3 w-3 mr-1 text-green-500" />
+                              <span>Áudio</span>
+                            </span>
+                          ) : (
+                            chat.lastMessage.content
+                          )
+                        ) : "Nenhuma mensagem"}
                       </p>
                     </div>
                   </div>
@@ -1729,6 +1765,12 @@ export default function ChatApp() {
                           
                           console.log("Enviando mensagem de áudio:", audioMessage);
                           socket.emit("message:send", audioMessage);
+                          
+                          // Reproduce send sound
+                          if (sendMessageSound.current) {
+                            sendMessageSound.current.currentTime = 0;
+                            sendMessageSound.current.play().catch(err => console.error("Erro ao reproduzir som de envio:", err));
+                          }
                           
                           // Aguardar 500ms para dar tempo ao servidor processar
                           setTimeout(() => {

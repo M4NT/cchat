@@ -25,3 +25,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# uploads directory
+/uploads/
+/uploads/*
+/public/uploads/
+/public/uploads/*
