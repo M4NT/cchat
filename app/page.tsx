@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef, useLayoutEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { io, type Socket } from "socket.io-client"
 import { Button } from "@/components/ui/button"
@@ -148,15 +148,18 @@ export default function ChatApp() {
   const [selectedFile, setSelectedFile] = useState<any>(null)
   const [isPreviewingFile, setIsPreviewingFile] = useState(false)
   // Mobile sidebar state
-  const [sidebarOpen, setSidebarOpen] = useState(typeof window !== 'undefined' && window.innerWidth > 768)
-  // Adicionar estados para mutedChats e pinnedMessages
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+  // Adicionar estados para mutedChats, pinnedMessages e unreadMessages
   const [mutedChats, setMutedChats] = useState<string[]>([])
   const [pinnedMessages, setPinnedMessages] = useState<any[]>([])
   const [archivedChats, setArchivedChats] = useState<any[]>([])
+  const [unreadMessages, setUnreadMessages] = useState<Record<string, number>>({})
   const messageInputRef = useRef<HTMLInputElement>(null)
   
   // Detect mobile on initial load
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+    
     const handleResize = () => {
       if (window.innerWidth <= 768) {
         setSidebarOpen(false)
@@ -175,7 +178,9 @@ export default function ChatApp() {
     }
   }, [])
 
-  useLayoutEffect(() => {
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    
     // Check if user is logged in
     const storedUser = localStorage.getItem("chatUser")
     if (!storedUser) {
@@ -253,6 +258,14 @@ export default function ChatApp() {
           return new Date(bTime).getTime() - new Date(aTime).getTime()
         })
       })
+
+      // Incrementa contador de mensagens não lidas se não estiver no chat ativo ou se a mensagem não for do usuário atual
+      if (String(newMessage.chatId) !== String(activeChat?.id) && String(newMessage.sender?.id) !== String(user?.id)) {
+        setUnreadMessages(prev => ({
+          ...prev,
+          [String(newMessage.chatId)]: (prev[String(newMessage.chatId)] || 0) + 1
+        }))
+      }
 
       // Notifica se não estiver no chat ativo
       if (String(newMessage.chatId) !== String(activeChat?.id) && !mutedChats.includes(String(newMessage.chatId))) {
@@ -511,6 +524,7 @@ export default function ChatApp() {
 
   // Save muted chats to localStorage when changed
   useEffect(() => {
+    if (typeof window === 'undefined') return;
     localStorage.setItem("mutedChats", JSON.stringify(mutedChats))
   }, [mutedChats])
 
@@ -523,6 +537,7 @@ export default function ChatApp() {
 
   // Adicionar referência para o áudio de envio de mensagem (já existe um para notificação)
   useEffect(() => {
+    if (typeof window === 'undefined') return;
     notificationSound.current = new Audio("/sounds/pop-sound.mp3")
     sendMessageSound.current = new Audio("/sounds/send-message.mp3")
   }, [])
@@ -920,6 +935,12 @@ export default function ChatApp() {
   const handleChatSelect = (chat: any) => {
     setActiveChat(chat)
     
+    // Limpar mensagens não lidas para este chat
+    setUnreadMessages(prev => ({
+      ...prev,
+      [String(chat.id)]: 0
+    }))
+    
     // Definir a aba ativa com base no tipo de chat
     if (chat.is_group) {
       setActiveTab("groups")
@@ -934,7 +955,7 @@ export default function ChatApp() {
     }
     
     // Fechar a gaveta em dispositivos móveis
-    if (window.innerWidth <= 768) {
+    if (typeof window !== 'undefined' && window.innerWidth <= 768) {
       setSidebarOpen(false)
     }
     
@@ -1121,7 +1142,7 @@ export default function ChatApp() {
       })
       
       // Fechar a gaveta em dispositivos móveis
-      if (window.innerWidth <= 768) {
+      if (typeof window !== 'undefined' && window.innerWidth <= 768) {
         setSidebarOpen(false)
       }
     }
@@ -1180,7 +1201,7 @@ export default function ChatApp() {
       setIsCreatingGroup(false);
       
       // Fechar a gaveta em dispositivos móveis
-      if (window.innerWidth <= 768) {
+      if (typeof window !== 'undefined' && window.innerWidth <= 768) {
         setSidebarOpen(false)
       }
       
@@ -1225,9 +1246,33 @@ export default function ChatApp() {
   }
 
   return (
-    <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
+    <div className="flex h-screen bg-gray-50 dark:bg-gray-900" suppressHydrationWarning>
       {/* Hidden audio element for notifications */}
       <audio ref={notificationSound} src="/notification.mp3" />
+
+      {/* Estilos para a animação de notificação */}
+      <style jsx global>{`
+        @keyframes pulseNotification {
+          0% { transform: scale(1); }
+          50% { transform: scale(1.1); }
+          100% { transform: scale(1); }
+        }
+        
+        .notification-badge {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          min-width: 20px;
+          height: 20px;
+          border-radius: 10px;
+          background-color: #ef4444;
+          color: white;
+          font-size: 0.75rem;
+          font-weight: 600;
+          padding: 0 6px;
+          animation: pulseNotification 1.5s infinite ease-in-out;
+        }
+      `}</style>
 
       {/* Mobile Drawer Overlay - Visible only on mobile when drawer is open */}
       {sidebarOpen && (
@@ -1260,27 +1305,27 @@ export default function ChatApp() {
           <div className="flex items-center">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon">
+                <Button variant="ghost" size="icon" aria-label="Menu de opções">
                   <MoreVertical className="h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onClick={() => setIsEditingProfile(true)}>
                   <Settings className="h-4 w-4 mr-2" />
-                  Editar perfil
+                  <span>Editar perfil</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setIsManagingBackup(true)}>
                   <Database className="h-4 w-4 mr-2" />
-                  Backup
+                  <span>Backup</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setIsViewingHistory(true)}>
                   <History className="h-4 w-4 mr-2" />
-                  Histórico
+                  <span>Histórico</span>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleLogout} className="text-red-600">
                   <LogOut className="h-4 w-4 mr-2" />
-                  Sair
+                  <span>Sair</span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -1293,11 +1338,33 @@ export default function ChatApp() {
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <div className="p-4 flex items-center justify-between">
             <TabsList className="flex justify-center space-x-8 h-12 bg-gray-100 dark:bg-gray-800 rounded-xl p-2">
-              <TabsTrigger value="chats" className="data-[state=active]:bg-white dark:data-[state=active]:bg-gray-700 rounded-lg px-4 transition-all">
+              <TabsTrigger value="chats" className="data-[state=active]:bg-white dark:data-[state=active]:bg-gray-700 rounded-lg px-4 transition-all relative">
                 <MessageSquare className="h-5 w-5 text-gray-900 dark:text-gray-300" />
+                {Object.entries(unreadMessages).filter(([chatId]) => {
+                  const chat = chats.find(c => String(c.id) === chatId);
+                  return chat && !chat.is_group;
+                }).reduce((sum, [_, count]) => sum + count, 0) > 0 && (
+                  <div className="notification-badge absolute -top-1 -right-1">
+                    {Object.entries(unreadMessages).filter(([chatId]) => {
+                      const chat = chats.find(c => String(c.id) === chatId);
+                      return chat && !chat.is_group;
+                    }).reduce((sum, [_, count]) => sum + count, 0)}
+                  </div>
+                )}
               </TabsTrigger>
-              <TabsTrigger value="groups" className="data-[state=active]:bg-white dark:data-[state=active]:bg-gray-700 rounded-lg px-4 transition-all">
+              <TabsTrigger value="groups" className="data-[state=active]:bg-white dark:data-[state=active]:bg-gray-700 rounded-lg px-4 transition-all relative">
                 <Users className="h-5 w-5 text-gray-900 dark:text-gray-300" />
+                {Object.entries(unreadMessages).filter(([chatId]) => {
+                  const chat = chats.find(c => String(c.id) === chatId);
+                  return chat && chat.is_group;
+                }).reduce((sum, [_, count]) => sum + count, 0) > 0 && (
+                  <div className="notification-badge absolute -top-1 -right-1">
+                    {Object.entries(unreadMessages).filter(([chatId]) => {
+                      const chat = chats.find(c => String(c.id) === chatId);
+                      return chat && chat.is_group;
+                    }).reduce((sum, [_, count]) => sum + count, 0)}
+                  </div>
+                )}
               </TabsTrigger>
               <TabsTrigger value="users" className="data-[state=active]:bg-white dark:data-[state=active]:bg-gray-700 rounded-lg px-4 transition-all">
                 <User className="h-5 w-5 text-gray-900 dark:text-gray-300" />
@@ -1373,66 +1440,73 @@ export default function ChatApp() {
                       </p>
                     </div>
                   </div>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                      <Button variant="ghost" size="icon">
-                        <MoreVertical className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      {chat.is_group && (
+                  <div className="flex items-center">
+                    {unreadMessages[String(chat.id)] > 0 && (
+                      <div className="notification-badge mr-2">
+                        {unreadMessages[String(chat.id)]}
+                      </div>
+                    )}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                        <Button variant="ghost" size="icon">
+                          <MoreVertical className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        {chat.is_group && (
+                          <DropdownMenuItem
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setActiveChat(chat)
+                              setIsEditingGroup(true)
+                            }}
+                          >
+                            <Settings className="h-4 w-4 mr-2" />
+                            Editar grupo
+                          </DropdownMenuItem>
+                        )}
+                        <DropdownMenuItem
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleToggleMute(chat.id)
+                          }}
+                        >
+                          {chat.muted ? (
+                            <>
+                              <Bell className="h-4 w-4 mr-2" />
+                              Ativar notificações
+                            </>
+                          ) : (
+                            <>
+                              <BellOff className="h-4 w-4 mr-2" />
+                              Silenciar notificações
+                            </>
+                          )}
+                        </DropdownMenuItem>
                         <DropdownMenuItem
                           onClick={(e) => {
                             e.stopPropagation()
                             setActiveChat(chat)
-                            setIsEditingGroup(true)
+                            setIsManagingBackup(true)
                           }}
                         >
-                          <Settings className="h-4 w-4 mr-2" />
-                          Editar grupo
+                          <Database className="h-4 w-4 mr-2" />
+                          Backup de conversa
                         </DropdownMenuItem>
-                      )}
-                      <DropdownMenuItem
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleToggleMute(chat.id)
-                        }}
-                      >
-                        {chat.muted ? (
-                          <>
-                            <Bell className="h-4 w-4 mr-2" />
-                            Ativar notificações
-                          </>
-                        ) : (
-                          <>
-                            <BellOff className="h-4 w-4 mr-2" />
-                            Silenciar notificações
-                          </>
-                        )}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setActiveChat(chat)
-                          setIsManagingBackup(true)
-                        }}
-                      >
-                        <Database className="h-4 w-4 mr-2" />
-                        Backup de conversa
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem
-                        className="text-destructive focus:text-destructive"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleDeleteChat(chat.id)
-                        }}
-                      >
-                        <Trash2 className="h-4 w-4 mr-2" />
-                        Excluir conversa
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          className="text-destructive focus:text-destructive"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleDeleteChat(chat.id)
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4 mr-2" />
+                          Excluir conversa
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
                 </div>
               ))}
             </ScrollArea>
@@ -1466,21 +1540,28 @@ export default function ChatApp() {
                         <p className="text-sm font-medium leading-none truncate">
                           {chat.name || "Grupo"}
                         </p>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleToggleMute(chat.id)
-                          }}
-                        >
-                          {chat.muted ? (
-                            <BellOff className="h-4 w-4" />
-                          ) : (
-                            <Bell className="h-4 w-4" />
+                        <div className="flex items-center">
+                          {unreadMessages[String(chat.id)] > 0 && (
+                            <div className="notification-badge mr-2">
+                              {unreadMessages[String(chat.id)]}
+                            </div>
                           )}
-                        </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleToggleMute(chat.id)
+                            }}
+                          >
+                            {chat.muted ? (
+                              <BellOff className="h-4 w-4" />
+                            ) : (
+                              <Bell className="h-4 w-4" />
+                            )}
+                          </Button>
+                        </div>
                       </div>
                       <p className="text-sm text-gray-500 truncate dark:text-gray-400">
                         {chat.lastMessage ? (
@@ -1555,6 +1636,7 @@ export default function ChatApp() {
                   onClick={() => setIsSearching(true)}
                   title="Pesquisar mensagens"
                   className="w-10 h-10 p-0"
+                  aria-label="Pesquisar mensagens"
                 >
                   <Search className="h-5 w-5" />
                 </Button>
@@ -1566,33 +1648,34 @@ export default function ChatApp() {
                   onClick={() => {
                     setIsEditingGroup(true)
                   }}
+                  aria-label="Configurações do grupo"
                 >
                   <Settings className="h-5 w-5" />
                 </Button>
               )}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" title="Mais opções">
+                  <Button variant="ghost" size="icon" title="Mais opções" aria-label="Mais opções">
                     <MoreVertical className="h-5 w-5" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                   <DropdownMenuItem onClick={() => setIsCreatingPoll(true)}>
                     <BarChart2 className="h-4 w-4 mr-2" />
-                    Criar enquete
+                    <span>Criar enquete</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={handleShareLocation}>
                     <MapPin className="h-4 w-4 mr-2" />
-                    Compartilhar localização
+                    <span>Compartilhar localização</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => setIsViewingHistory(true)}>
                     <History className="h-4 w-4 mr-2" />
-                    Histórico de ações
+                    <span>Histórico de ações</span>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={() => setIsManagingBackup(true)}>
                     <Database className="h-4 w-4 mr-2" />
-                    Backup e restauração
+                    <span>Backup e restauração</span>
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -2144,7 +2227,7 @@ export default function ChatApp() {
                 setIsCreatingGroup(false);
                 
                 // Fechar a gaveta em dispositivos móveis
-                if (window.innerWidth <= 768) {
+                if (typeof window !== 'undefined' && window.innerWidth <= 768) {
                   setSidebarOpen(false)
                 }
                 

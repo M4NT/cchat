@@ -284,6 +284,7 @@ export default function SearchMessages({ chatId, onClose, onMessageSelect }: Sea
                   size="icon"
                   className="relative"
                   title="Filtros de pesquisa"
+                  aria-label="Filtros de pesquisa"
                 >
                   <SlidersHorizontal className="h-4 w-4" />
                 </Button>
