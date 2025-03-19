@@ -35,8 +35,8 @@ export default function UserList({ currentUserId, onUserSelect }: UserListProps)
 
         if (response.ok) {
           const data = await response.json()
-          // Filtra o usuário atual da lista
-          const filteredUsers = data.users.filter((user: User) => user.id !== currentUserId)
+          // Filtra o usuário atual da lista, garantindo que a comparação seja feita com strings
+          const filteredUsers = data.users.filter((user: User) => String(user.id) !== String(currentUserId))
           setUsers(filteredUsers)
         }
       } catch (error) {

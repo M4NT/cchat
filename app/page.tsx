@@ -1248,7 +1248,7 @@ export default function ChatApp() {
   return (
     <div className="flex h-screen bg-gray-50 dark:bg-gray-900" suppressHydrationWarning>
       {/* Hidden audio element for notifications */}
-      <audio ref={notificationSound} src="/notification.mp3" />
+      {/* <audio ref={notificationSound} src="/notification.mp3" /> */}
 
       {/* Estilos para a animação de notificação */}
       <style jsx global>{`
