@@ -22,6 +22,8 @@ import {
   FileArchive,
   FileCode,
   File,
+  FileVideo,
+  Link as LinkIcon,
 } from "lucide-react"
 import {
   DropdownMenu,
@@ -48,7 +50,7 @@ interface ChatMessageProps {
     }
     content: string
     timestamp: string
-    type: "text" | "image" | "audio" | "file" | "location" | "poll"
+    type: "text" | "image" | "audio" | "file" | "location" | "poll" | "link"
     replyTo?: {
       id: string
       content: string
@@ -79,6 +81,8 @@ interface ChatMessageProps {
       hasVoted?: boolean
     }
     fileName?: string
+    fileSize?: number
+    additional_data?: string
   }
   isOwnMessage: boolean
   currentUserId: string
@@ -117,6 +121,19 @@ export default function ChatMessage({
   const [showMap, setShowMap] = useState(false)
   const mapRef = useRef<HTMLDivElement>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
+  const [linkData, setLinkData] = useState<any>(null)
+
+  // Processar dados adicionais para links
+  useEffect(() => {
+    if (message.type === 'link' && message.content) {
+      try {
+        const data = JSON.parse(message.content);
+        setLinkData(data);
+      } catch (error) {
+        console.error("Erro ao processar link:", error);
+      }
+    }
+  }, [message.type, message.content]);
 
   // Process markdown and mentions
   const processContent = (content: string) => {
@@ -254,10 +271,8 @@ export default function ChatMessage({
     }
   }
 
-  const handleReactionAdd = (messageId: string, emoji: string) => {
-    if (onReactionAdd) {
-      onReactionAdd(messageId, emoji)
-    }
+  const handleReactionAdd = (emoji: string) => {
+    onReactionAdd?.(message.id, emoji)
   }
 
   const handleVote = (optionId: string) => {
@@ -354,12 +369,33 @@ export default function ChatMessage({
     )
   }
 
+  const renderLinkPreview = () => {
+    if (!linkData) return null;
+    
+    return (
+      <a 
+        href={linkData.url} 
+        target="_blank" 
+        rel="noopener noreferrer"
+        className="block no-underline p-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-750 transition-colors mt-2"
+      >
+        <div className="flex items-center space-x-3">
+          <LinkIcon className="h-10 w-10 text-blue-500 flex-shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="font-medium text-sm text-primary">{linkData.title || linkData.url}</p>
+            <p className="text-xs text-gray-500 truncate">{linkData.url}</p>
+          </div>
+        </div>
+      </a>
+    );
+  };
+
   const renderMessageContent = () => {
     switch (message.type) {
       case "text":
         return (
           <div
-            className="text-sm whitespace-pre-wrap break-words prose prose-sm dark:prose-invert max-w-none"
+            className="prose prose-sm dark:prose-invert max-w-none mt-1 break-words"
             dangerouslySetInnerHTML={{ __html: processContent(message.content) }}
           />
         )
@@ -368,132 +404,117 @@ export default function ChatMessage({
         return (
           <div className="mt-2">
             <img
-              src={message.content || "/placeholder.svg"}
-              alt="Shared image"
-              className="max-w-xs rounded-md"
-              onClick={() => window.open(message.content, "_blank")}
+              src={message.content}
+              alt="Imagem compartilhada"
+              className="max-w-full rounded-md cursor-pointer max-h-60 object-contain"
+              onClick={() => onFilePreview?.(message)}
             />
           </div>
         )
 
       case "audio":
-        // Formatar duração
-        const formatTime = (seconds: number) => {
-          const minutes = Math.floor(seconds / 60);
-          const secs = Math.floor(seconds % 60);
-          return `${minutes}:${secs < 10 ? '0' : ''}${secs}`;
-        };
-        
-        // Função para baixar o áudio
-        const downloadAudio = async () => {
-          try {
-            const response = await fetch(message.content);
-            const blob = await response.blob();
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.style.display = 'none';
-            a.href = url;
-            a.download = message.fileName || 'audio.mp3';
-            document.body.appendChild(a);
-            a.click();
-            window.URL.revokeObjectURL(url);
-            document.body.removeChild(a);
-          } catch (error) {
-            console.error('Erro ao baixar áudio:', error);
-          }
-        };
-        
         return (
-          <div className="flex flex-col mt-1 w-full max-w-[300px]">
+          <div className="mt-2 bg-gray-50 dark:bg-gray-800 p-3 rounded-md">
             <div className="flex items-center space-x-3">
-              <Button 
-                size="icon" 
+              <button
                 onClick={handlePlayAudio}
-                className="h-10 w-10 flex-shrink-0 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 border-none shadow-sm"
-                variant="default"
+                className="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-white"
               >
-                {isPlaying ? 
-                  <Pause className="h-5 w-5" /> : 
-                  <Play className="h-5 w-5 ml-0.5" />
-                }
-              </Button>
-              
-              <div className="flex-1 min-h-[46px] bg-gray-100 dark:bg-gray-800 rounded-lg px-3 py-2">
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-xs font-medium">
-                    {isOwnMessage ? "Seu áudio" : "Mensagem de áudio"}
-                  </span>
-                  <span className="text-xs text-gray-500 dark:text-gray-400">
-                    {audioDuration ? formatTime(audioDuration) : "--:--"}
-                  </span>
-                </div>
-                
-                {/* Barra de progresso com melhor visual */}
-                <div className="h-2 w-full bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-                  <div 
-                    className="h-full bg-primary transition-all duration-300" 
+                {isPlaying ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5" />}
+              </button>
+
+              <div className="flex-1">
+                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                  <div
+                    className="bg-primary h-2 rounded-full"
                     style={{ width: `${audioProgress}%` }}
-                  />
+                  ></div>
+                </div>
+
+                <div className="flex justify-between mt-1">
+                  <span className="text-xs text-gray-700 dark:text-gray-400">
+                    {audioDuration
+                      ? `${Math.floor(
+                          (audioDuration * audioProgress) / 100 / 60
+                        )}:${Math.floor(
+                          ((audioDuration * audioProgress) / 100) % 60
+                        ).toString().padStart(2, "0")}`
+                      : "0:00"}
+                  </span>
+                  <span className="text-xs text-gray-700 dark:text-gray-400">
+                    {audioDuration
+                      ? `${Math.floor(audioDuration / 60)}:${Math.floor(audioDuration % 60)
+                          .toString()
+                          .padStart(2, "0")}`
+                      : "0:00"}
+                  </span>
                 </div>
               </div>
             </div>
-            
-            {/* Elemento de áudio invisível para carregar os metadados */}
-            <audio 
-              ref={audioRef}
-              src={message.content} 
-              className="hidden"
-              preload="metadata"
-            />
           </div>
         )
 
       case "file":
-        const fileName = message.fileName || message.content.split("/").pop() || "Arquivo";
+        // Verifica se há additional_data com informações extras sobre o arquivo
+        let fileSize = message.fileSize;
+        if (!fileSize && message.additional_data) {
+          try {
+            const additionalData = JSON.parse(message.additional_data);
+            if (additionalData.fileSize) {
+              fileSize = additionalData.fileSize;
+            }
+          } catch (error) {
+            console.error("Erro ao processar additional_data:", error);
+          }
+        }
+        
         return (
           <div className="mt-2">
-            <FilePreview fileName={fileName} fileUrl={message.content} />
+            <FilePreview 
+              fileName={message.fileName || "Arquivo"} 
+              fileUrl={message.content}
+              fileSize={fileSize}
+            />
           </div>
         )
 
+      case "link":
+        return renderLinkPreview()
+
       case "location":
+        let location
         try {
-          const locationData = typeof message.content === "string" ? JSON.parse(message.content) : message.content
-          return (
-            <div className="mt-2">
-              <div className="bg-gray-100 dark:bg-gray-800 p-3 rounded-lg">
-                <div className="flex items-center space-x-2 mb-2">
-                  <MapPin className="h-5 w-5 text-blue-500" />
-                  <span className="text-sm font-medium">Localização Compartilhada</span>
-                </div>
-                {locationData.address && (
-                  <p className="text-sm text-gray-600 dark:text-gray-300 mb-2">{locationData.address}</p>
-                )}
-                <Button
-                  variant="outline"
-                  className="w-full"
-                  onClick={() =>
-                    window.open(
-                      `https://www.google.com/maps?q=${locationData.latitude},${locationData.longitude}`,
-                      "_blank"
-                    )
-                  }
-                >
-                  Abrir no Maps
-                </Button>
-              </div>
-            </div>
-          )
+          location = typeof message.content === "string" ? JSON.parse(message.content) : message.content
         } catch (error) {
           console.error("Error parsing location data:", error)
-          return <div className="text-red-500">Erro ao carregar localização</div>
+          return <div>Localização inválida</div>
         }
+
+        return (
+          <div className="mt-2">
+            <div
+              className="bg-gray-50 dark:bg-gray-800 p-3 rounded-md cursor-pointer border border-gray-200 dark:border-gray-700"
+              onClick={() => setShowMap(!showMap)}
+            >
+              <div className="flex items-center space-x-2">
+                <MapPin className="h-5 w-5 text-red-500" />
+                <span className="text-gray-800 dark:text-gray-300">{location.address || "Localização compartilhada"}</span>
+              </div>
+              {showMap && (
+                <div
+                  ref={mapRef}
+                  className="h-40 bg-gray-200 dark:bg-gray-700 rounded-md mt-2"
+                ></div>
+              )}
+            </div>
+          </div>
+        )
 
       case "poll":
         return renderPoll()
 
       default:
-        return <div className="text-sm">{message.content}</div>
+        return <div>{message.content}</div>
     }
   }
 

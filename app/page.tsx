@@ -265,9 +265,22 @@ export default function ChatApp() {
 
         // Toast de notificação
         const isMentioned = newMessage.content.includes(`@${user?.name}`)
+        
+        // Determinar a descrição baseada no tipo de mensagem
+        let messageDesc = "";
+        if (newMessage.type === 'audio') {
+          messageDesc = "Mensagem de áudio";
+        } else if (newMessage.type === 'image') {
+          messageDesc = "Imagem";
+        } else if (newMessage.type === 'file') {
+          messageDesc = "Arquivo";
+        } else {
+          messageDesc = newMessage.content.substring(0, 30) + (newMessage.content.length > 30 ? "..." : "");
+        }
+        
         toast({
           title: isMentioned ? "🔔 Você foi mencionado!" : "Nova Mensagem",
-          description: `${newMessage.sender.name}: ${newMessage.type === 'audio' ? "Mensagem de áudio" : newMessage.content.substring(0, 30)}${newMessage.type !== 'audio' && newMessage.content.length > 30 ? "..." : ""}`,
+          description: `${newMessage.sender.name}: ${messageDesc}`,
           action: (
             <Button
               variant="outline"
@@ -1535,14 +1548,17 @@ export default function ChatApp() {
               </div>
             </div>
             <div className="flex space-x-2">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setIsSearching(true)}
-                title="Pesquisar mensagens"
-              >
-                <Search className="h-5 w-5" />
-              </Button>
+              <div className="flex-shrink-0">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setIsSearching(true)}
+                  title="Pesquisar mensagens"
+                  className="w-10 h-10 p-0"
+                >
+                  <Search className="h-5 w-5" />
+                </Button>
+              </div>
               {activeChat.is_group && (
                 <Button
                   variant="ghost"
@@ -1853,11 +1869,17 @@ export default function ChatApp() {
                 type: fileType.startsWith("image/") ? "image" : "file",
                 fileName,
                 replyTo: replyingTo,
-              })
+              });
 
-              setReplyingTo(null)
+              // Reproduce send sound
+              if (sendMessageSound.current) {
+                sendMessageSound.current.currentTime = 0;
+                sendMessageSound.current.play().catch(err => console.error("Erro ao reproduzir som de envio:", err));
+              }
+
+              setReplyingTo(null);
             }
-            setIsUploading(false)
+            setIsUploading(false);
           }}
         />
       )}
@@ -1935,7 +1957,7 @@ export default function ChatApp() {
                 <Input
                   id="scheduled-message"
                   value={scheduledMessage.content}
-                  onChange={(e) => setScheduledMessage((prev) => ({ ...prev, content: e.target.value }))}
+                  onChange={(e) => setScheduledMessage((prev: {content: string, date: Date | null}) => ({ ...prev, content: e.target.value }))}
                   placeholder="Digite sua mensagem..."
                 />
               </div>
@@ -1947,7 +1969,7 @@ export default function ChatApp() {
                   type="datetime-local"
                   onChange={(e) => {
                     const date = e.target.value ? new Date(e.target.value) : null
-                    setScheduledMessage((prev) => ({ ...prev, date }))
+                    setScheduledMessage((prev: {content: string, date: Date | null}) => ({ ...prev, date }))
                   }}
                 />
               </div>
