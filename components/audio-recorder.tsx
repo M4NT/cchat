@@ -22,6 +22,7 @@ export default function AudioRecorder({ onRecordingComplete, onCancel }: AudioRe
   const audioPlayer = useRef<HTMLAudioElement | null>(null)
   const [isPlaying, setIsPlaying] = useState(false)
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
+  const startTimeRef = useRef<number>(0)
 
   // Iniciar gravação automaticamente ao montar o componente
   useEffect(() => {
@@ -67,14 +68,15 @@ export default function AudioRecorder({ onRecordingComplete, onCancel }: AudioRe
       }
 
       mediaRecorder.current.onstop = () => {
+        // Salva o tempo final da gravação antes de limpar o cronômetro
+        const currentDuration = Math.floor((Date.now() - startTimeRef.current) / 1000);
+        setFinalRecordingTime(currentDuration);
+        
         // Certifique-se de parar o cronômetro imediatamente
         if (timerInterval.current) {
           clearInterval(timerInterval.current);
           timerInterval.current = null;
         }
-        
-        // Armazena o tempo final da gravação
-        setFinalRecordingTime(recordingTime);
         
         const newAudioBlob = new Blob(audioChunks.current, { type: "audio/mpeg" })
         setAudioBlob(newAudioBlob)
@@ -90,15 +92,19 @@ export default function AudioRecorder({ onRecordingComplete, onCancel }: AudioRe
         stream.getTracks().forEach(track => track.stop())
       }
 
+      // Reinicia completamente o cronômetro
+      setRecordingTime(0);
+      setFinalRecordingTime(0);
+      
+      // Armazena o tempo de início
+      startTimeRef.current = Date.now();
+      
       mediaRecorder.current.start()
       setIsRecording(true)
-      setRecordingTime(0)
-      setFinalRecordingTime(0)
 
       // Inicia o timer com referência de tempo
-      const startTime = Date.now();
       timerInterval.current = setInterval(() => {
-        const elapsedSeconds = Math.floor((Date.now() - startTime) / 1000);
+        const elapsedSeconds = Math.floor((Date.now() - startTimeRef.current) / 1000);
         setRecordingTime(elapsedSeconds);
       }, 1000)
     } catch (error) {
@@ -114,6 +120,10 @@ export default function AudioRecorder({ onRecordingComplete, onCancel }: AudioRe
 
   const stopRecording = () => {
     if (mediaRecorder.current && isRecording) {
+      // Calcular o tempo final antes de parar a gravação
+      const currentDuration = Math.floor((Date.now() - startTimeRef.current) / 1000);
+      setFinalRecordingTime(currentDuration);
+      
       mediaRecorder.current.stop()
       
       // Limpa o timer imediatamente para garantir que o cronômetro pare
@@ -140,14 +150,18 @@ export default function AudioRecorder({ onRecordingComplete, onCancel }: AudioRe
   }
 
   const handleRerecord = () => {
-    // Limpar dados atuais e iniciar nova gravação
+    // Limpar dados atuais
     if (audioUrl) {
       URL.revokeObjectURL(audioUrl);
       setAudioUrl(null);
     }
+    
+    // Limpar completamente o estado antes de iniciar nova gravação
     setAudioBlob(null);
     setRecordingTime(0);
     setFinalRecordingTime(0);
+    
+    // Iniciar nova gravação
     startRecording();
   }
 
