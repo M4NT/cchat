@@ -142,7 +142,7 @@ export default function FilePreview({ fileName, fileUrl, fileSize, className }: 
           size="icon" 
           onClick={() => window.open(fileUrl, "_blank")}
           title="Baixar arquivo"
-          className="flex-shrink-0"
+          className="flex-shrink-0 text-black dark:text-white"
         >
           <Download className="h-4 w-4" />
         </Button>
