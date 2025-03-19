@@ -136,15 +136,29 @@ export default function AudioRecorder({ onRecordingComplete, onCancel }: AudioRe
 
   const handleSendAudio = () => {
     if (audioBlob) {
-      onRecordingComplete(audioBlob)
+      try {
+        // Chama o callback com o blob de áudio
+        onRecordingComplete(audioBlob)
       
-      // Limpar o estado após enviar
-      setAudioBlob(null)
-      setRecordingTime(0)
-      setFinalRecordingTime(0)
-      if (audioUrl) {
-        URL.revokeObjectURL(audioUrl);
-        setAudioUrl(null);
+        // Limpar o estado após enviar
+        cleanup();
+        
+        // Limpar todos os estados
+        setAudioBlob(null)
+        setRecordingTime(0)
+        setFinalRecordingTime(0)
+        setIsPlaying(false)
+        
+        if (audioPlayer.current) {
+          audioPlayer.current.pause();
+        }
+        
+        if (audioUrl) {
+          URL.revokeObjectURL(audioUrl);
+          setAudioUrl(null);
+        }
+      } catch (error) {
+        console.error("Erro ao enviar áudio:", error);
       }
     }
   }
@@ -156,6 +170,12 @@ export default function AudioRecorder({ onRecordingComplete, onCancel }: AudioRe
       setAudioUrl(null);
     }
     
+    if (audioPlayer.current) {
+      audioPlayer.current.pause();
+    }
+    
+    setIsPlaying(false);
+    
     // Limpar completamente o estado antes de iniciar nova gravação
     setAudioBlob(null);
     setRecordingTime(0);
@@ -166,6 +186,11 @@ export default function AudioRecorder({ onRecordingComplete, onCancel }: AudioRe
   }
 
   const handleCancel = () => {
+    // Parar qualquer reprodução em andamento
+    if (audioPlayer.current) {
+      audioPlayer.current.pause();
+    }
+    
     // Limpar recursos
     cleanup();
     

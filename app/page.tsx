@@ -1674,47 +1674,87 @@ export default function ChatApp() {
                 <div className="mt-2">
                   <AudioRecorder
                     onRecordingComplete={(audioBlob) => {
-                      if (!socket || !activeChat) return
+                      if (!socket || !activeChat) {
+                        console.error("Socket ou chat ativo não disponível");
+                        return;
+                      }
 
+                      console.log("Áudio gravado, tamanho:", audioBlob.size, "bytes");
+                      
                       // Create FormData to upload audio
-                      const formData = new FormData()
-                      formData.append("audio", audioBlob, "audio.mp3")
+                      const formData = new FormData();
+                      formData.append("audio", audioBlob, "audio.mp3");
+
+                      // Log server URL
+                      const serverUrl = `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"}/api/upload/audio`;
+                      console.log("Enviando áudio para:", serverUrl);
 
                       // Upload audio
-                      fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/upload/audio`, {
+                      fetch(serverUrl, {
                         method: "POST",
                         body: formData,
                         headers: {
                           Authorization: `Bearer ${localStorage.getItem("token")}`,
                         },
                       })
-                        .then((response) => response.json())
+                        .then((response) => {
+                          console.log("Status da resposta:", response.status);
+                          if (!response.ok) {
+                            throw new Error(`Resposta não-OK do servidor: ${response.status}`);
+                          }
+                          return response.json();
+                        })
                         .then((data) => {
+                          console.log("Resposta do servidor:", data);
+                          
+                          if (!data.audioUrl) {
+                            console.error("URL de áudio não foi retornada pelo servidor");
+                            throw new Error("URL de áudio não encontrada na resposta");
+                          }
+                          
                           // Send audio message
-                          socket.emit("message:send", {
+                          const audioMessage = {
                             chatId: activeChat.id,
-                            sender: user,
-                            content: data.audioUrl,
+                            sender: {
+                              id: String(user?.id),
+                              name: user?.name,
+                              avatar: user?.avatar
+                            },
+                            content: data.audioUrl, 
                             fileName: "Audio Recording",
                             timestamp: new Date().toISOString(),
                             type: "audio",
                             replyTo: replyingTo,
-                          })
-                          setIsRecordingAudio(false)
-                          setReplyingTo(null)
-                          toast({
-                            title: "Áudio enviado",
-                            description: "Sua mensagem de áudio foi enviada com sucesso.",
-                          })
+                          };
+                          
+                          console.log("Enviando mensagem de áudio:", audioMessage);
+                          socket.emit("message:send", audioMessage);
+                          
+                          // Aguardar 500ms para dar tempo ao servidor processar
+                          setTimeout(() => {
+                            // Limpar estados após o envio bem-sucedido
+                            setIsRecordingAudio(false);
+                            setReplyingTo(null);
+                            
+                            // Solicitar histórico de mensagens para atualizar
+                            socket.emit("message:history", String(activeChat.id));
+                            
+                            toast({
+                              title: "Áudio enviado",
+                              description: "Sua mensagem de áudio foi enviada com sucesso.",
+                            });
+                          }, 500);
                         })
                         .catch((error) => {
-                          console.error("Error uploading audio:", error)
+                          console.error("Erro detalhado do upload:", error);
                           toast({
                             title: "Erro",
                             description: "Ocorreu um erro ao enviar o áudio. Tente novamente.",
                             variant: "destructive",
-                          })
-                        })
+                          });
+                          // Garantir que a interface se recupere mesmo em caso de erro
+                          setIsRecordingAudio(false);
+                        });
                     }}
                     onCancel={() => setIsRecordingAudio(false)}
                   />

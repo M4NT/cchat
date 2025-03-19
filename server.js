@@ -26,53 +26,43 @@ app.use(cors({
 app.use(express.json())
 app.use("/uploads", express.static(path.join(__dirname, "uploads")))
 
-// Create uploads directory if it doesn't exist
+// Diretórios para upload de arquivos
 const uploadsDir = path.join(__dirname, "uploads")
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true })
-}
-
-// Create subdirectories for different types of uploads
-const profilesDir = path.join(uploadsDir, "profiles")
-const groupsDir = path.join(uploadsDir, "groups")
+const avatarsDir = path.join(uploadsDir, "avatars")
 const filesDir = path.join(uploadsDir, "files")
-const audiosDir = path.join(uploadsDir, "audios")
-;[profilesDir, groupsDir, filesDir, audiosDir].forEach((dir) => {
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true })
-  }
-})
+const groupsDir = path.join(uploadsDir, "groups")
+const audioDir = path.join(uploadsDir, "audio")
 
-// Configure multer for file uploads
+// Criar diretórios se não existirem
+if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir)
+if (!fs.existsSync(avatarsDir)) fs.mkdirSync(avatarsDir)
+if (!fs.existsSync(filesDir)) fs.mkdirSync(filesDir)
+if (!fs.existsSync(groupsDir)) fs.mkdirSync(groupsDir)
+if (!fs.existsSync(audioDir)) fs.mkdirSync(audioDir)
+
+// Set up multer storage
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    let uploadPath = uploadsDir
-
-    // Determine upload path based on file type or route
-    if (req.path.includes("/users/avatar")) {
-      uploadPath = profilesDir
-    } else if (req.path.includes("/groups/avatar")) {
-      uploadPath = groupsDir
-    } else if (file.mimetype.startsWith("audio/")) {
-      uploadPath = audiosDir
+    const isAvatar = req.path.includes("avatar")
+    const isGroupAvatar = req.path.includes("groups/avatar")
+    const isAudio = req.path.includes("audio")
+    
+    if (isAvatar) {
+      cb(null, avatarsDir)
+    } else if (isGroupAvatar) {
+      cb(null, groupsDir)
+    } else if (isAudio) {
+      cb(null, audioDir)
     } else {
-      uploadPath = filesDir
+      cb(null, filesDir)
     }
-
-    cb(null, uploadPath)
   },
   filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9)
-    cb(null, uniqueSuffix + path.extname(file.originalname))
+    cb(null, Date.now() + "-" + file.originalname)
   },
 })
 
-const upload = multer({
-  storage: storage,
-  limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB limit
-  },
-})
+const upload = multer({ storage })
 
 // Database connection
 const pool = mysql.createPool({
@@ -136,9 +126,10 @@ async function initDatabase() {
         chat_id INT NOT NULL,
         sender_id INT NOT NULL,
         content TEXT NOT NULL,
-        type ENUM('text', 'image', 'audio', 'file') DEFAULT 'text',
+        type ENUM('text', 'image', 'audio', 'file', 'location', 'poll') DEFAULT 'text',
         is_read BOOLEAN DEFAULT FALSE,
         reply_to INT,
+        additional_data TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (chat_id) REFERENCES chats(id) ON DELETE CASCADE,
         FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -412,6 +403,16 @@ io.on("connection", (socket) => {
 
       // Format messages
       const formattedMessages = messages.map((message) => {
+        // Parse additional data if exists
+        let additionalData = null;
+        if (message.additional_data) {
+          try {
+            additionalData = JSON.parse(message.additional_data);
+          } catch (error) {
+            console.error("Error parsing additional data for message ID " + message.id, error);
+          }
+        }
+        
         const formattedMessage = {
           id: message.id,
           chatId: message.chat_id,
@@ -439,6 +440,12 @@ io.on("connection", (socket) => {
         // Add reactions if any
         if (message.reactions) {
           formattedMessage.reactions = message.reactions
+        }
+        
+        // Add additional data (like fileName for audio/file)
+        if (additionalData) {
+          // Merge additional data into the message
+          Object.assign(formattedMessage, additionalData);
         }
 
         return formattedMessage
@@ -473,15 +480,38 @@ io.on("connection", (socket) => {
 
       const sender = senders[0];
       
+      // Verificar se há informações adicionais específicas do tipo de mensagem
+      let additionalData = null;
+      
+      if (message.type === "audio") {
+        console.log("Processando mensagem de áudio");
+        additionalData = {
+          fileName: message.fileName || "Audio Recording"
+        };
+        console.log("Dados adicionais de áudio:", additionalData);
+      } else if (message.type === "file") {
+        additionalData = {
+          fileName: message.fileName || "File"
+        };
+      }
+      
+      // Construir a coluna de conteúdo
+      let content = message.content;
+      
+      // Preparar additional_data para insert
+      const additionalDataJSON = additionalData ? JSON.stringify(additionalData) : null;
+      console.log("JSON de dados adicionais:", additionalDataJSON);
+      
       // Save message to database
       const [result] = await pool.execute(
-        "INSERT INTO messages (chat_id, sender_id, content, type, reply_to) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO messages (chat_id, sender_id, content, type, reply_to, additional_data) VALUES (?, ?, ?, ?, ?, ?)",
         [
           message.chatId,
           message.sender.id,
-          message.content,
+          content,
           message.type || "text",
           message.replyTo ? message.replyTo.id : null,
+          additionalDataJSON
         ]
       );
 
@@ -501,7 +531,8 @@ io.on("connection", (socket) => {
           avatar: sender.avatar,
           is_online: Boolean(sender.is_online)
         },
-        replyTo: message.replyTo
+        replyTo: message.replyTo,
+        fileName: message.fileName // Adicionar fileName diretamente para compatibilidade
       };
 
       console.log("Enviando mensagem para o chat:", message.chatId);
@@ -1085,14 +1116,14 @@ app.post("/api/users/avatar", upload.single("file"), async (req, res) => {
 
     // Optimize image
     const optimizedFilename = `optimized-${req.file.filename}`
-    const optimizedPath = path.join(profilesDir, optimizedFilename)
+    const optimizedPath = path.join(avatarsDir, optimizedFilename)
 
     await sharp(req.file.path).resize(200, 200).jpeg({ quality: 80 }).toFile(optimizedPath)
 
     // Delete original file
     fs.unlinkSync(req.file.path)
 
-    const fileUrl = `${req.protocol}://${req.get("host")}/uploads/profiles/${optimizedFilename}`
+    const fileUrl = `${req.protocol}://${req.get("host")}/uploads/avatars/${optimizedFilename}`
 
     res.json({
       message: "Avatar enviado com sucesso",
@@ -1251,10 +1282,20 @@ app.get("/api/messages/search", authenticateJWT, async (req, res) => {
 
     // Format messages
     const formattedMessages = messages.map((message) => {
-      return {
+      // Parse additional data if exists
+      let additionalData = null;
+      if (message.additional_data) {
+        try {
+          additionalData = JSON.parse(message.additional_data);
+        } catch (error) {
+          console.error("Error parsing additional data for message ID " + message.id, error);
+        }
+      }
+      
+      const formattedMessage = {
         id: message.id,
         chatId: message.chat_id,
-        content: message.content,  // Usar o conteúdo original sem descriptografar
+        content: message.content,
         type: message.type,
         timestamp: message.created_at,
         sender: {
@@ -1263,6 +1304,30 @@ app.get("/api/messages/search", authenticateJWT, async (req, res) => {
           avatar: message.sender_avatar,
         },
       }
+
+      // Add reply information if this message is a reply
+      if (message.reply_id) {
+        formattedMessage.replyTo = {
+          id: message.reply_id,
+          content: message.reply_content,
+          sender: {
+            name: message.reply_sender_name,
+          },
+        }
+      }
+
+      // Add reactions if any
+      if (message.reactions) {
+        formattedMessage.reactions = message.reactions
+      }
+      
+      // Add additional data (like fileName for audio/file)
+      if (additionalData) {
+        // Merge additional data into the message
+        Object.assign(formattedMessage, additionalData);
+      }
+
+      return formattedMessage
     })
 
     res.json({ messages: formattedMessages })
@@ -1293,21 +1358,27 @@ app.post("/api/upload/file", upload.single("file"), (req, res) => {
 })
 
 // Upload audio
-app.post("/api/upload/audio", upload.single("file"), (req, res) => {
+app.post("/api/upload/audio", upload.single("audio"), async (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).json({ message: "Nenhum arquivo enviado" })
+      return res.status(400).json({ message: "Nenhum arquivo de áudio enviado" })
     }
 
-    const fileUrl = `${req.protocol}://${req.get("host")}/uploads/audios/${req.file.filename}`
+    console.log("Recebendo upload de áudio:", req.file);
+    
+    // Garantindo que o caminho está correto
+    const fileName = req.file.filename;
+    const fileUrl = `${req.protocol}://${req.get("host")}/uploads/audio/${fileName}`;
+
+    console.log("URL do áudio gerada:", fileUrl);
 
     res.json({
       message: "Áudio enviado com sucesso",
-      url: fileUrl,
-      filename: req.file.filename,
+      audioUrl: fileUrl,
+      filename: fileName,
     })
   } catch (error) {
-    console.error("Error uploading audio:", error)
+    console.error("Erro ao fazer upload do áudio:", error)
     res.status(500).json({ message: "Erro interno do servidor" })
   }
 })

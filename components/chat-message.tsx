@@ -110,10 +110,13 @@ export default function ChatMessage({
   pinnedMessages,
 }: ChatMessageProps) {
   const [isPlaying, setIsPlaying] = useState(false)
+  const [audioProgress, setAudioProgress] = useState(0)
+  const [audioDuration, setAudioDuration] = useState(0)
   const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(null)
   const [copied, setCopied] = useState(false)
   const [showMap, setShowMap] = useState(false)
   const mapRef = useRef<HTMLDivElement>(null)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
 
   // Process markdown and mentions
   const processContent = (content: string) => {
@@ -155,25 +158,91 @@ export default function ChatMessage({
     return processedContent
   }
 
+  // Criar elemento de áudio se for uma mensagem de áudio
+  useEffect(() => {
+    if (message.type === "audio" && !audioElement) {
+      console.log("Criando elemento de áudio para:", message.content);
+      const audio = new Audio(message.content);
+      
+      audio.addEventListener("timeupdate", () => {
+        if (audio.duration) {
+          setAudioProgress((audio.currentTime / audio.duration) * 100);
+        }
+      });
+      
+      audio.addEventListener("loadedmetadata", () => {
+        setAudioDuration(audio.duration);
+      });
+      
+      audio.addEventListener("ended", () => {
+        setIsPlaying(false);
+        setAudioProgress(0);
+        audio.currentTime = 0;
+      });
+      
+      audio.addEventListener("error", (e) => {
+        console.error("Erro ao carregar áudio:", e);
+        setIsPlaying(false);
+      });
+      
+      setAudioElement(audio);
+      audioRef.current = audio;
+    }
+    
+    return () => {
+      if (audioElement) {
+        audioElement.pause();
+        audioElement.src = "";
+        setAudioElement(null);
+      }
+    };
+  }, [message.type, message.content, audioElement]);
+
   const handlePlayAudio = () => {
     if (!audioElement) {
-      const audio = new Audio(message.content)
-      setAudioElement(audio)
-
-      audio.addEventListener("ended", () => {
-        setIsPlaying(false)
-      })
-
-      audio.play()
-      setIsPlaying(true)
-    } else {
-      if (isPlaying) {
-        audioElement.pause()
-        setIsPlaying(false)
-      } else {
-        audioElement.play()
-        setIsPlaying(true)
+      console.log("Elemento de áudio não disponível");
+      // Tentar criar o elemento se não existir
+      if (message.type === "audio") {
+        const audio = new Audio(message.content);
+        setAudioElement(audio);
+        audioRef.current = audio;
+        
+        // Adicionar eventos
+        audio.addEventListener("ended", () => {
+          setIsPlaying(false);
+        });
+        
+        audio.addEventListener("timeupdate", () => {
+          if (audio.duration) {
+            setAudioProgress((audio.currentTime / audio.duration) * 100);
+          }
+        });
+        
+        // Reproduzir após criação
+        audio.play()
+          .then(() => {
+            setIsPlaying(true);
+          })
+          .catch(err => {
+            console.error("Erro ao reproduzir áudio:", err);
+            setIsPlaying(false);
+          });
       }
+      return;
+    }
+    
+    if (isPlaying) {
+      audioElement.pause();
+      setIsPlaying(false);
+    } else {
+      audioElement.play()
+        .then(() => {
+          setIsPlaying(true);
+        })
+        .catch(err => {
+          console.error("Erro ao reproduzir áudio:", err);
+          setIsPlaying(false);
+        });
     }
   }
 
@@ -308,19 +377,58 @@ export default function ChatMessage({
         )
 
       case "audio":
+        // Formatar duração
+        const formatTime = (seconds: number) => {
+          const minutes = Math.floor(seconds / 60);
+          const secs = Math.floor(seconds % 60);
+          return `${minutes}:${secs < 10 ? '0' : ''}${secs}`;
+        };
+        
         return (
-          <div className="flex items-center space-x-2 mt-2">
-            <Button variant="outline" size="icon" onClick={handlePlayAudio}>
-              {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-            </Button>
-            <div className="h-10 w-36 bg-gray-200 dark:bg-gray-700 rounded-md relative">
-              <div className="absolute inset-0 flex items-center justify-center">
-                <span className="text-xs">Mensagem de áudio</span>
+          <div className="flex flex-col space-y-2 mt-2 w-full max-w-[250px]">
+            <div className="flex items-center space-x-2">
+              <Button 
+                variant="outline" 
+                size="icon" 
+                onClick={handlePlayAudio}
+                className="h-8 w-8 flex-shrink-0"
+              >
+                {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+              </Button>
+              
+              <div className="flex-1 h-10 bg-gray-200 dark:bg-gray-700 rounded-md relative overflow-hidden">
+                {/* Barra de progresso */}
+                <div 
+                  className="absolute left-0 top-0 bottom-0 bg-primary/60 transition-all duration-300" 
+                  style={{ width: `${audioProgress}%` }}
+                />
+                
+                <div className="absolute inset-0 flex flex-col items-center justify-center px-2">
+                  <span className="text-xs font-medium">Mensagem de áudio</span>
+                  <span className="text-xs">
+                    {audioDuration ? formatTime(audioDuration) : "--:--"}
+                  </span>
+                </div>
               </div>
+              
+              <Button 
+                variant="outline" 
+                size="icon" 
+                onClick={() => window.open(message.content, "_blank")}
+                className="h-8 w-8 flex-shrink-0"
+                title="Baixar áudio"
+              >
+                <Download className="h-4 w-4" />
+              </Button>
             </div>
-            <Button variant="outline" size="icon" onClick={() => window.open(message.content, "_blank")}>
-              <Download className="h-4 w-4" />
-            </Button>
+            
+            {/* Elemento de áudio invisível para carregar os metadados */}
+            <audio 
+              ref={audioRef}
+              src={message.content} 
+              className="hidden"
+              preload="metadata"
+            />
           </div>
         )
 
