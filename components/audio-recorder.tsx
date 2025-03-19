@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react"
 import { Button } from "@/components/ui/button"
-import { Mic, Square, Loader2, Send, RefreshCw } from "lucide-react"
+import { Mic, Square, Loader2, Send, RefreshCw, Play, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 interface AudioRecorderProps {
@@ -13,6 +13,7 @@ interface AudioRecorderProps {
 export default function AudioRecorder({ onRecordingComplete, onCancel }: AudioRecorderProps) {
   const [isRecording, setIsRecording] = useState(false)
   const [recordingTime, setRecordingTime] = useState(0)
+  const [finalRecordingTime, setFinalRecordingTime] = useState(0)
   const [isInitializing, setIsInitializing] = useState(false)
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null)
   const mediaRecorder = useRef<MediaRecorder | null>(null)
@@ -66,6 +67,15 @@ export default function AudioRecorder({ onRecordingComplete, onCancel }: AudioRe
       }
 
       mediaRecorder.current.onstop = () => {
+        // Certifique-se de parar o cronômetro imediatamente
+        if (timerInterval.current) {
+          clearInterval(timerInterval.current);
+          timerInterval.current = null;
+        }
+        
+        // Armazena o tempo final da gravação
+        setFinalRecordingTime(recordingTime);
+        
         const newAudioBlob = new Blob(audioChunks.current, { type: "audio/mpeg" })
         setAudioBlob(newAudioBlob)
         
@@ -83,10 +93,13 @@ export default function AudioRecorder({ onRecordingComplete, onCancel }: AudioRe
       mediaRecorder.current.start()
       setIsRecording(true)
       setRecordingTime(0)
+      setFinalRecordingTime(0)
 
-      // Inicia o timer
+      // Inicia o timer com referência de tempo
+      const startTime = Date.now();
       timerInterval.current = setInterval(() => {
-        setRecordingTime((prev) => prev + 1)
+        const elapsedSeconds = Math.floor((Date.now() - startTime) / 1000);
+        setRecordingTime(elapsedSeconds);
       }, 1000)
     } catch (error) {
       console.error("Error accessing microphone:", error)
@@ -103,7 +116,7 @@ export default function AudioRecorder({ onRecordingComplete, onCancel }: AudioRe
     if (mediaRecorder.current && isRecording) {
       mediaRecorder.current.stop()
       
-      // Limpa o timer
+      // Limpa o timer imediatamente para garantir que o cronômetro pare
       if (timerInterval.current) {
         clearInterval(timerInterval.current)
         timerInterval.current = null
@@ -118,6 +131,7 @@ export default function AudioRecorder({ onRecordingComplete, onCancel }: AudioRe
       // Limpar o estado após enviar
       setAudioBlob(null)
       setRecordingTime(0)
+      setFinalRecordingTime(0)
       if (audioUrl) {
         URL.revokeObjectURL(audioUrl);
         setAudioUrl(null);
@@ -133,6 +147,7 @@ export default function AudioRecorder({ onRecordingComplete, onCancel }: AudioRe
     }
     setAudioBlob(null);
     setRecordingTime(0);
+    setFinalRecordingTime(0);
     startRecording();
   }
 
@@ -199,7 +214,7 @@ export default function AudioRecorder({ onRecordingComplete, onCancel }: AudioRe
           <div className="flex items-center gap-2">
             <div className="text-xs text-gray-500">Gravando...</div>
             <Button onClick={handleCancel} variant="ghost" size="sm" className="h-7 w-7 p-0">
-              <Square className="h-4 w-4" />
+              <X className="h-4 w-4" />
             </Button>
           </div>
         </div>
@@ -207,7 +222,7 @@ export default function AudioRecorder({ onRecordingComplete, onCancel }: AudioRe
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <div className="flex-1 text-sm font-medium">
-              Áudio pronto para envio ({formatTime(recordingTime)})
+              Áudio pronto para envio ({formatTime(finalRecordingTime)})
             </div>
             <div className="flex space-x-1">
               <Button 
@@ -220,7 +235,7 @@ export default function AudioRecorder({ onRecordingComplete, onCancel }: AudioRe
                 {isPlaying ? (
                   <Square className="h-4 w-4" />
                 ) : (
-                  <Mic className="h-4 w-4" />
+                  <Play className="h-4 w-4" />
                 )}
               </Button>
               <Button 
@@ -239,7 +254,7 @@ export default function AudioRecorder({ onRecordingComplete, onCancel }: AudioRe
                 className="h-8 w-8"
                 title="Cancelar"
               >
-                <Square className="h-4 w-4" />
+                <X className="h-4 w-4" />
               </Button>
               <Button 
                 onClick={handleSendAudio} 
