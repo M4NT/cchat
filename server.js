@@ -126,7 +126,7 @@ async function initDatabase() {
         chat_id INT NOT NULL,
         sender_id INT NOT NULL,
         content TEXT NOT NULL,
-        type ENUM('text', 'image', 'audio', 'file', 'location', 'poll', 'link') DEFAULT 'text',
+        type ENUM('text', 'image', 'audio', 'file', 'location', 'poll', 'link', 'system') DEFAULT 'text',
         is_read BOOLEAN DEFAULT FALSE,
         reply_to INT,
         additional_data TEXT,
@@ -182,11 +182,22 @@ async function updateMessageTypes() {
     console.log("Tentando atualizar a tabela de mensagens para suportar o tipo 'link'...");
     await pool.execute(`
       ALTER TABLE messages 
-      MODIFY COLUMN type ENUM('text', 'image', 'audio', 'file', 'location', 'poll', 'link') DEFAULT 'text'
+      MODIFY COLUMN type ENUM('text', 'image', 'audio', 'file', 'location', 'poll', 'link', 'system') DEFAULT 'text'
     `);
     console.log("Tabela de mensagens atualizada com sucesso!");
   } catch (error) {
     console.error("Erro ao atualizar tabela de mensagens:", error.message);
+  }
+
+  try {
+    console.log("Verificando se é necessário modificar a coluna 'sender_id' para permitir NULL...");
+    await pool.execute(`
+      ALTER TABLE messages 
+      MODIFY COLUMN sender_id INT NULL
+    `);
+    console.log("Coluna sender_id modificada para aceitar NULL com sucesso!");
+  } catch (error) {
+    console.error("Erro ao modificar coluna sender_id:", error.message);
   }
 }
 
@@ -991,6 +1002,119 @@ io.on("connection", (socket) => {
       socket.emit("error", { message: "Failed to delete chat" })
     }
   })
+
+  // Leave chat/group
+  socket.on("chat:leave", async (data) => {
+    try {
+      const { chatId, userId } = data;
+      
+      if (!chatId || !userId) {
+        return socket.emit("error", { message: "Invalid data for leaving chat" });
+      }
+      
+      console.log(`User ${userId} is leaving chat ${chatId}`);
+      
+      // Verificar se o chat é um grupo
+      const [chatResults] = await pool.execute(
+        "SELECT is_group FROM chats WHERE id = ?",
+        [chatId]
+      );
+      
+      if (chatResults.length === 0) {
+        return socket.emit("error", { message: "Chat not found" });
+      }
+      
+      const chat = chatResults[0];
+      
+      // Apenas é possível sair de grupos
+      if (!chat.is_group) {
+        return socket.emit("error", { message: "Cannot leave individual chats" });
+      }
+      
+      // Remover o usuário como participante do grupo
+      await pool.execute(
+        "DELETE FROM chat_participants WHERE chat_id = ? AND user_id = ?",
+        [chatId, userId]
+      );
+      
+      // Verificar se ainda há participantes no grupo
+      const [remainingParticipants] = await pool.execute(
+        "SELECT COUNT(*) as count FROM chat_participants WHERE chat_id = ?",
+        [chatId]
+      );
+      
+      // Se não há mais participantes, excluir o grupo
+      if (remainingParticipants[0].count === 0) {
+        await pool.execute("DELETE FROM chats WHERE id = ?", [chatId]);
+        console.log(`Group ${chatId} deleted as it has no more participants`);
+      } else {
+        // Se o usuário que saiu era admin, designar outro participante como admin
+        const [adminResults] = await pool.execute(
+          "SELECT COUNT(*) as count FROM chat_participants WHERE chat_id = ? AND is_admin = 1",
+          [chatId]
+        );
+        
+        if (adminResults[0].count === 0) {
+          // Não há mais admins, designar o primeiro participante como admin
+          const [firstParticipant] = await pool.execute(
+            "SELECT user_id FROM chat_participants WHERE chat_id = ? LIMIT 1",
+            [chatId]
+          );
+          
+          if (firstParticipant.length > 0) {
+            await pool.execute(
+              "UPDATE chat_participants SET is_admin = 1 WHERE chat_id = ? AND user_id = ?",
+              [chatId, firstParticipant[0].user_id]
+            );
+            console.log(`User ${firstParticipant[0].user_id} promoted to admin of group ${chatId}`);
+          }
+        }
+        
+        // Notificar os outros participantes que o usuário saiu
+        const [participants] = await pool.execute(
+          "SELECT user_id FROM chat_participants WHERE chat_id = ?",
+          [chatId]
+        );
+        
+        // Obter informações do usuário que saiu
+        const [userInfo] = await pool.execute(
+          "SELECT name FROM users WHERE id = ?",
+          [userId]
+        );
+        
+        const userName = userInfo.length > 0 ? userInfo[0].name : "Usuário";
+        
+        // Salvar uma mensagem do sistema no grupo informando a saída do usuário
+        await pool.execute(
+          "INSERT INTO messages (chat_id, sender_id, content, type) VALUES (?, ?, ?, ?)",
+          [chatId, null, `${userName} saiu do grupo`, "system"]
+        );
+        
+        // Enviar mensagem de atualização do grupo para todos os participantes
+        const message = {
+          chatId,
+          content: `${userName} saiu do grupo`,
+          timestamp: new Date().toISOString(),
+          type: "system"
+        };
+        
+        io.to(`chat:${chatId}`).emit("message:new", message);
+        
+        // Notificar todos os participantes sobre a atualização do grupo
+        for (const participant of participants) {
+          io.to(`user:${participant.user_id}`).emit("chat:updated", { id: chatId, userLeft: userId });
+        }
+      }
+      
+      // Notificar o usuário que saiu que a operação foi bem-sucedida
+      socket.emit("chat:left", { chatId });
+      console.log(`User ${userId} successfully left chat ${chatId}`);
+      
+    } catch (error) {
+      console.error("Error in chat:leave:", error);
+      socket.emit("error", { message: "Failed to leave chat" });
+    }
+  });
 
   // Update user profile
   socket.on("user:update", async (userData) => {

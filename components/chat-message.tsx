@@ -206,7 +206,7 @@ export default function ChatMessage({
       });
       
       audio.addEventListener("error", (e) => {
-        console.error("Erro ao carregar áudio:", e);
+        console.error("Erro ao carregar áudio:", e.target instanceof HTMLAudioElement ? e.target.error : "Erro desconhecido");
         setIsPlaying(false);
       });
       

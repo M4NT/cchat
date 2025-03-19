@@ -104,6 +104,7 @@ interface Chat {
     content: string
     timestamp: string
   }
+  createdBy?: string
 }
 
 export default function ChatApp() {
@@ -327,6 +328,26 @@ export default function ChatApp() {
     socket.on("chat:list", (chatList) => {
       console.log("Lista de chats recebida:", chatList)
       setChats(chatList)
+    })
+
+    socket.on("chat:deleted", (chatId) => {
+      console.log("Chat excluído recebido:", chatId)
+      setChats(prev => prev.filter(chat => String(chat.id) !== String(chatId)))
+      
+      if (activeChat && String(activeChat.id) === String(chatId)) {
+        setActiveChat(null)
+        setMessages([])
+      }
+    })
+    
+    socket.on("chat:left", ({ chatId }) => {
+      console.log("Saída de grupo confirmada:", chatId)
+      setChats(prev => prev.filter(chat => String(chat.id) !== String(chatId)))
+      
+      if (activeChat && String(activeChat.id) === String(chatId)) {
+        setActiveChat(null)
+        setMessages([])
+      }
     })
 
     socket.on("chat:new", (newChat) => {
@@ -973,6 +994,28 @@ export default function ChatApp() {
     }
   }
 
+  const handleLeaveGroup = (groupId: string) => {
+    if (socket && user) {
+      socket.emit("chat:leave", {
+        chatId: groupId,
+        userId: user.id
+      })
+      
+      if (activeChat?.id === groupId) {
+        setActiveChat(null)
+        setMessages([])
+      }
+      
+      // Remover o grupo da lista de chats do usuário
+      setChats(prev => prev.filter(chat => chat.id !== groupId))
+      
+      toast({
+        title: "Grupo abandonado",
+        description: "Você saiu do grupo com sucesso"
+      })
+    }
+  }
+
   const handleDeleteMessage = (messageId: string) => {
     if (socket && activeChat) {
       socket.emit("message:delete", {
@@ -1390,55 +1433,43 @@ export default function ChatApp() {
           </div>
 
           <TabsContent value="chats" className="m-0">
-            <ScrollArea className="flex-1">
+            <ScrollArea className="flex-1 h-[calc(100vh-220px)]">
               {(activeFilters.tags.length > 0 || activeFilters.query || activeFilters.showArchived
-                ? filteredChats
-                : chats
+                ? filteredChats.filter(chat => !chat.is_group)
+                : chats.filter(chat => !chat.is_group)
               ).map((chat) => (
                 <div
                   key={`chat-${chat.id}`}
                   className={cn(
-                    "flex items-center justify-between p-3 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700",
+                    "flex items-center space-x-3 p-3 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700",
                     activeChat?.id === chat.id && "bg-gray-100 dark:bg-gray-700"
                   )}
                   onClick={() => handleChatSelect(chat)}
                 >
-                  <div className="flex items-center space-x-3">
-                    <Avatar>
-                      {chat.is_group ? (
-                        chat.avatar ? (
-                          <AvatarImage src={chat.avatar} />
-                        ) : (
-                          <AvatarFallback className="bg-green-500">{chat.name?.charAt(0)}</AvatarFallback>
-                        )
-                      ) : (
-                        <>
-                          <AvatarImage src={chat.participants[0]?.avatar || "/placeholder.svg?height=40&width=40"} />
-                          <AvatarFallback>{chat.participants[0]?.name?.charAt(0)}</AvatarFallback>
-                        </>
+                  <Avatar>
+                    <AvatarImage src={chat.participants[0]?.avatar || "/placeholder.svg?height=40&width=40"} />
+                    <AvatarFallback>{chat.participants[0]?.name?.charAt(0)}</AvatarFallback>
+                  </Avatar>
+                  <div className="flex-1 overflow-hidden">
+                    <div className="flex items-center">
+                      <h4 className="font-medium">{chat.participants[0]?.name}</h4>
+                      {mutedChats.includes(String(chat.id)) && (
+                        <BellOff className="h-4 w-4 ml-2 text-gray-500" />
                       )}
-                    </Avatar>
-                    <div>
-                      <div className="flex items-center">
-                        <h4 className="font-medium">{chat.is_group ? chat.name : chat.participants[0]?.name}</h4>
-                        {chat.muted && (
-                          <BellOff className="h-4 w-4 text-gray-500" />
-                        )}
-                        {chat.pinnedMessages?.length > 0 && <Pin className="h-3 w-3 ml-1 text-yellow-500" />}
-                      </div>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 truncate w-40">
-                        {chat.lastMessage ? (
-                          chat.lastMessage.type === 'audio' ? (
-                            <span className="flex items-center">
-                              <FileAudio className="h-3 w-3 mr-1 text-green-500" />
-                              <span>Áudio</span>
-                            </span>
-                          ) : (
-                            chat.lastMessage.content
-                          )
-                        ) : "Nenhuma mensagem ainda"}
-                      </p>
+                      {chat.pinnedMessages?.length > 0 && <Pin className="h-3 w-3 ml-1 text-yellow-500" />}
                     </div>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 truncate w-40">
+                      {chat.lastMessage ? (
+                        chat.lastMessage.type === 'audio' ? (
+                          <span className="flex items-center">
+                            <FileAudio className="h-3 w-3 mr-1 text-green-500" />
+                            <span>Áudio</span>
+                          </span>
+                        ) : (
+                          <span className="truncate block">{chat.lastMessage.content}</span>
+                        )
+                      ) : "Nenhuma mensagem"}
+                    </p>
                   </div>
                   <div className="flex items-center">
                     {unreadMessages[String(chat.id)] > 0 && (
@@ -1453,25 +1484,13 @@ export default function ChatApp() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        {chat.is_group && (
-                          <DropdownMenuItem
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setActiveChat(chat)
-                              setIsEditingGroup(true)
-                            }}
-                          >
-                            <Settings className="h-4 w-4 mr-2" />
-                            Editar grupo
-                          </DropdownMenuItem>
-                        )}
                         <DropdownMenuItem
                           onClick={(e) => {
                             e.stopPropagation()
                             handleToggleMute(chat.id)
                           }}
                         >
-                          {chat.muted ? (
+                          {mutedChats.includes(String(chat.id)) ? (
                             <>
                               <Bell className="h-4 w-4 mr-2" />
                               Ativar notificações
@@ -1512,17 +1531,18 @@ export default function ChatApp() {
             </ScrollArea>
           </TabsContent>
 
-          <TabsContent value="groups" className="m-0 p-4">
-            <ScrollArea className="flex-1">
-              <div className="space-y-1 p-2">
+          <TabsContent value="groups" className="m-0">
+            <ScrollArea className="flex-1 h-[calc(100vh-220px)]">
+              <div className="space-y-1">
                 {chats
                   .filter(chat => chat.is_group)
                   .map((chat) => (
                   <div
                     key={`group-${chat.id}`}
-                    className={`flex items-center space-x-3 p-3 rounded-lg cursor-pointer ${
-                      activeChat?.id === chat.id ? "bg-gray-100 dark:bg-gray-800" : "hover:bg-gray-50 dark:hover:bg-gray-900"
-                    }`}
+                    className={cn(
+                      "flex items-center space-x-3 p-3 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700",
+                      activeChat?.id === chat.id && "bg-gray-100 dark:bg-gray-700"
+                    )}
                     onClick={() => handleChatSelect(chat)}
                   >
                     <Avatar>
@@ -1535,35 +1555,15 @@ export default function ChatApp() {
                         {chat.name?.charAt(0) || "G"}
                       </AvatarFallback>
                     </Avatar>
-                    <div className="flex-1 space-y-1 overflow-hidden">
-                      <div className="flex items-center justify-between">
-                        <p className="text-sm font-medium leading-none truncate">
-                          {chat.name || "Grupo"}
-                        </p>
-                        <div className="flex items-center">
-                          {unreadMessages[String(chat.id)] > 0 && (
-                            <div className="notification-badge mr-2">
-                              {unreadMessages[String(chat.id)]}
-                            </div>
-                          )}
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleToggleMute(chat.id)
-                            }}
-                          >
-                            {chat.muted ? (
-                              <BellOff className="h-4 w-4" />
-                            ) : (
-                              <Bell className="h-4 w-4" />
-                            )}
-                          </Button>
-                        </div>
+                    <div className="flex-1 overflow-hidden">
+                      <div className="flex items-center">
+                        <h4 className="font-medium">{chat.name || "Grupo"}</h4>
+                        {mutedChats.includes(String(chat.id)) && (
+                          <BellOff className="h-4 w-4 ml-2 text-gray-500" />
+                        )}
+                        {chat.pinnedMessages?.length > 0 && <Pin className="h-3 w-3 ml-1 text-yellow-500" />}
                       </div>
-                      <p className="text-sm text-gray-500 truncate dark:text-gray-400">
+                      <p className="text-xs text-gray-500 dark:text-gray-400 truncate w-40">
                         {chat.lastMessage ? (
                           chat.lastMessage.type === 'audio' ? (
                             <span className="flex items-center">
@@ -1571,10 +1571,88 @@ export default function ChatApp() {
                               <span>Áudio</span>
                             </span>
                           ) : (
-                            chat.lastMessage.content
+                            <span className="truncate block">{chat.lastMessage.content}</span>
                           )
                         ) : "Nenhuma mensagem"}
                       </p>
+                    </div>
+                    <div className="flex items-center">
+                      {unreadMessages[String(chat.id)] > 0 && (
+                        <div className="notification-badge mr-2">
+                          {unreadMessages[String(chat.id)]}
+                        </div>
+                      )}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                          <Button variant="ghost" size="icon">
+                            <MoreVertical className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setActiveChat(chat)
+                              setIsEditingGroup(true)
+                            }}
+                          >
+                            <Settings className="h-4 w-4 mr-2" />
+                            Editar grupo
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleToggleMute(chat.id)
+                            }}
+                          >
+                            {mutedChats.includes(String(chat.id)) ? (
+                              <>
+                                <Bell className="h-4 w-4 mr-2" />
+                                Ativar notificações
+                              </>
+                            ) : (
+                              <>
+                                <BellOff className="h-4 w-4 mr-2" />
+                                Silenciar notificações
+                              </>
+                            )}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setActiveChat(chat)
+                              setIsManagingBackup(true)
+                            }}
+                          >
+                            <Database className="h-4 w-4 mr-2" />
+                            Backup de conversa
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          {chat.createdBy === user?.id ? (
+                            <DropdownMenuItem
+                              className="text-destructive focus:text-destructive"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleDeleteChat(chat.id)
+                              }}
+                            >
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Excluir grupo
+                            </DropdownMenuItem>
+                          ) : (
+                            <DropdownMenuItem
+                              className="text-destructive focus:text-destructive"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleLeaveGroup(chat.id)
+                              }}
+                            >
+                              <LogOut className="h-4 w-4 mr-2" />
+                              Sair do grupo
+                            </DropdownMenuItem>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
                   </div>
                 ))}
