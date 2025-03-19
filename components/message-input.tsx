@@ -12,8 +12,8 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { cn } from "@/lib/utils"
 
 interface MessageInputProps {
-  chatId: string
-  participants: any[]
+  chatId?: string
+  participants?: any[]
   onSendMessage: (content: string) => void
   onAttachmentClick: () => void
   onRecordClick: () => void
@@ -21,11 +21,13 @@ interface MessageInputProps {
   replyingTo?: any
   placeholder?: string
   isGroup?: boolean
+  value?: string
+  onChange?: (value: string) => void
 }
 
 export default function MessageInput({
   chatId,
-  participants,
+  participants = [],
   onSendMessage,
   onAttachmentClick,
   onRecordClick,
@@ -33,17 +35,30 @@ export default function MessageInput({
   replyingTo,
   placeholder = "Digite uma mensagem...",
   isGroup = false,
+  value,
+  onChange,
 }: MessageInputProps) {
-  const [message, setMessage] = useState("")
+  const [message, setMessage] = useState(value || "")
   const [showEmoji, setShowEmoji] = useState(false)
   const [showMentions, setShowMentions] = useState(false)
   const [filteredParticipants, setFilteredParticipants] = useState<any[]>([])
   const inputRef = useRef<HTMLInputElement>(null)
 
+  // Sync with external value if provided
+  useEffect(() => {
+    if (value !== undefined) {
+      setMessage(value)
+    }
+  }, [value])
+
   const handleSendMessage = () => {
     if (message.trim()) {
       onSendMessage(message)
       setMessage("")
+      // Update external state if onChange is provided
+      if (onChange) {
+        onChange("")
+      }
     }
   }
 
@@ -76,6 +91,10 @@ export default function MessageInput({
       textBeforeCursor.substring(0, lastAtPos) + `@${participant.name} ` + textAfterCursor
 
     setMessage(newText)
+    // Update external state if onChange is provided
+    if (onChange) {
+      onChange(newText)
+    }
     setShowMentions(false)
 
     // Set focus back to input
@@ -91,6 +110,10 @@ export default function MessageInput({
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newValue = e.target.value
     setMessage(newValue)
+    // Update external state if onChange is provided
+    if (onChange) {
+      onChange(newValue)
+    }
 
     if (isGroup && showMentions) {
       const cursorPos = e.target.selectionStart || 0
@@ -145,20 +168,20 @@ export default function MessageInput({
   }
 
   return (
-    <div className="relative">
+    <div className="relative w-full">
       {renderReplyPreview()}
 
       <div
         className={cn(
-          "flex items-center space-x-2 bg-background border rounded-md px-3 py-2",
+          "flex items-center space-x-2 bg-background border rounded-md px-3 py-2 w-full",
           replyingTo && "rounded-t-none",
         )}
       >
-        <Button variant="ghost" size="icon" onClick={onAttachmentClick}>
+        <Button variant="ghost" size="icon" onClick={onAttachmentClick} className="flex-shrink-0">
           <Paperclip className="h-5 w-5" />
         </Button>
 
-        <div className="relative flex-1" onClick={(e) => e.stopPropagation()}>
+        <div className="relative flex-1 w-full" onClick={(e) => e.stopPropagation()}>
           <Input
             ref={inputRef}
             type="text"
@@ -166,7 +189,7 @@ export default function MessageInput({
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
             placeholder={placeholder}
-            className="border-0 focus-visible:ring-0 focus-visible:ring-offset-0"
+            className="border-0 focus-visible:ring-0 focus-visible:ring-offset-0 w-full"
           />
 
           {showMentions && filteredParticipants.length > 0 && (
@@ -190,26 +213,28 @@ export default function MessageInput({
           )}
         </div>
 
-        {message.trim() ? (
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={handleSendMessage}
-            className="text-primary hover:text-primary/80"
-          >
-            <Send className="h-5 w-5" />
-          </Button>
-        ) : (
-          <>
-            <Button variant="ghost" size="icon" onClick={onRecordClick}>
-              <Mic className="h-5 w-5" />
+        <div className="flex flex-shrink-0">
+          {message.trim() ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleSendMessage}
+              className="text-primary hover:text-primary/80"
+            >
+              <Send className="h-5 w-5" />
             </Button>
-            
-            <Button variant="ghost" size="icon" onClick={onScheduleClick}>
-              <Calendar className="h-5 w-5" />
-            </Button>
-          </>
-        )}
+          ) : (
+            <>
+              <Button variant="ghost" size="icon" onClick={onRecordClick}>
+                <Mic className="h-5 w-5" />
+              </Button>
+              
+              <Button variant="ghost" size="icon" onClick={onScheduleClick}>
+                <Calendar className="h-5 w-5" />
+              </Button>
+            </>
+          )}
+        </div>
       </div>
     </div>
   )

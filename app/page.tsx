@@ -1624,7 +1624,7 @@ export default function ChatApp() {
             </ScrollArea>
 
             {/* Message input */}
-            <div className="p-4 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700">
+            <div className="p-4 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 w-full">
               {replyingTo && (
                 <div className="p-2 bg-gray-100 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
                   <div className="flex items-center space-x-2">
@@ -1655,7 +1655,7 @@ export default function ChatApp() {
                 </div>
               )}
 
-              <div className="flex items-center space-x-2">
+              <div className="flex w-full items-center">
                 <MessageInput
                   value={inputMessage}
                   onChange={setInputMessage}
@@ -1664,59 +1664,62 @@ export default function ChatApp() {
                   onRecordClick={() => setIsRecordingAudio(!isRecordingAudio)}
                   onScheduleClick={() => setIsSchedulingMessage(true)}
                   replyingTo={replyingTo}
+                  isGroup={activeChat.is_group}
+                  participants={activeChat.participants || []}
+                  chatId={activeChat.id}
                 />
-
-                {isRecordingAudio && (
-                  <div className="mt-2">
-                    <AudioRecorder
-                      onRecordingComplete={(audioBlob) => {
-                        if (!socket || !activeChat) return
-
-                        // Create FormData to upload audio
-                        const formData = new FormData()
-                        formData.append("audio", audioBlob, "audio.mp3")
-
-                        // Upload audio
-                        fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/upload/audio`, {
-                          method: "POST",
-                          body: formData,
-                          headers: {
-                            Authorization: `Bearer ${localStorage.getItem("token")}`,
-                          },
-                        })
-                          .then((response) => response.json())
-                          .then((data) => {
-                            // Send audio message
-                            socket.emit("message:send", {
-                              chatId: activeChat.id,
-                              sender: user,
-                              content: data.audioUrl,
-                              fileName: "Audio Recording",
-                              timestamp: new Date().toISOString(),
-                              type: "audio",
-                              replyTo: replyingTo,
-                            })
-                            setIsRecordingAudio(false)
-                            setReplyingTo(null)
-                            toast({
-                              title: "Áudio enviado",
-                              description: "Sua mensagem de áudio foi enviada com sucesso.",
-                            })
-                          })
-                          .catch((error) => {
-                            console.error("Error uploading audio:", error)
-                            toast({
-                              title: "Erro",
-                              description: "Ocorreu um erro ao enviar o áudio. Tente novamente.",
-                              variant: "destructive",
-                            })
-                          })
-                      }}
-                      onCancel={() => setIsRecordingAudio(false)}
-                    />
-                  </div>
-                )}
               </div>
+              
+              {isRecordingAudio && (
+                <div className="mt-2">
+                  <AudioRecorder
+                    onRecordingComplete={(audioBlob) => {
+                      if (!socket || !activeChat) return
+
+                      // Create FormData to upload audio
+                      const formData = new FormData()
+                      formData.append("audio", audioBlob, "audio.mp3")
+
+                      // Upload audio
+                      fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/upload/audio`, {
+                        method: "POST",
+                        body: formData,
+                        headers: {
+                          Authorization: `Bearer ${localStorage.getItem("token")}`,
+                        },
+                      })
+                        .then((response) => response.json())
+                        .then((data) => {
+                          // Send audio message
+                          socket.emit("message:send", {
+                            chatId: activeChat.id,
+                            sender: user,
+                            content: data.audioUrl,
+                            fileName: "Audio Recording",
+                            timestamp: new Date().toISOString(),
+                            type: "audio",
+                            replyTo: replyingTo,
+                          })
+                          setIsRecordingAudio(false)
+                          setReplyingTo(null)
+                          toast({
+                            title: "Áudio enviado",
+                            description: "Sua mensagem de áudio foi enviada com sucesso.",
+                          })
+                        })
+                        .catch((error) => {
+                          console.error("Error uploading audio:", error)
+                          toast({
+                            title: "Erro",
+                            description: "Ocorreu um erro ao enviar o áudio. Tente novamente.",
+                            variant: "destructive",
+                          })
+                        })
+                    }}
+                    onCancel={() => setIsRecordingAudio(false)}
+                  />
+                </div>
+              )}
             </div>
           </>
         ) : (

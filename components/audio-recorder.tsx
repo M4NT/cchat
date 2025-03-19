@@ -7,9 +7,10 @@ import { cn } from "@/lib/utils"
 
 interface AudioRecorderProps {
   onRecordingComplete: (audioBlob: Blob) => void
+  onCancel?: () => void
 }
 
-export default function AudioRecorder({ onRecordingComplete }: AudioRecorderProps) {
+export default function AudioRecorder({ onRecordingComplete, onCancel }: AudioRecorderProps) {
   const [isRecording, setIsRecording] = useState(false)
   const [recordingTime, setRecordingTime] = useState(0)
   const [isInitializing, setIsInitializing] = useState(false)
@@ -89,6 +90,10 @@ export default function AudioRecorder({ onRecordingComplete }: AudioRecorderProp
       }, 1000)
     } catch (error) {
       console.error("Error accessing microphone:", error)
+      // Se falhar em iniciar a gravação, chama onCancel
+      if (onCancel) {
+        onCancel();
+      }
     } finally {
       setIsInitializing(false)
     }
@@ -129,6 +134,16 @@ export default function AudioRecorder({ onRecordingComplete }: AudioRecorderProp
     setAudioBlob(null);
     setRecordingTime(0);
     startRecording();
+  }
+
+  const handleCancel = () => {
+    // Limpar recursos
+    cleanup();
+    
+    // Chamar callback de cancelamento
+    if (onCancel) {
+      onCancel();
+    }
   }
 
   const togglePlayPreview = () => {
@@ -181,7 +196,12 @@ export default function AudioRecorder({ onRecordingComplete }: AudioRecorderProp
               {formatTime(recordingTime)}
             </div>
           </div>
-          <div className="text-xs text-gray-500">Gravando...</div>
+          <div className="flex items-center gap-2">
+            <div className="text-xs text-gray-500">Gravando...</div>
+            <Button onClick={handleCancel} variant="ghost" size="sm" className="h-7 w-7 p-0">
+              <Square className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
       ) : audioBlob ? (
         <div className="space-y-2">
@@ -211,6 +231,15 @@ export default function AudioRecorder({ onRecordingComplete }: AudioRecorderProp
                 title="Gravar novamente"
               >
                 <RefreshCw className="h-4 w-4" />
+              </Button>
+              <Button 
+                onClick={handleCancel}
+                variant="ghost" 
+                size="icon"
+                className="h-8 w-8"
+                title="Cancelar"
+              >
+                <Square className="h-4 w-4" />
               </Button>
               <Button 
                 onClick={handleSendAudio} 
