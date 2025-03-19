@@ -340,13 +340,31 @@ export default function ChatApp() {
       }
     })
     
-    socket.on("chat:left", ({ chatId }) => {
-      console.log("Saída de grupo confirmada:", chatId)
-      setChats(prev => prev.filter(chat => String(chat.id) !== String(chatId)))
+    socket.on("chat:left", ({ chatId, message }) => {
+      console.log("Saída de grupo confirmada:", chatId, message);
       
+      // Remover o grupo da lista de chats do usuário
+      setChats(prev => prev.filter(chat => String(chat.id) !== String(chatId)));
+      
+      // Se o grupo que está sendo abandonado for o chat ativo, limpar estado
       if (activeChat && String(activeChat.id) === String(chatId)) {
-        setActiveChat(null)
-        setMessages([])
+        setActiveChat(null);
+        setMessages([]);
+        
+        // Mostrar toast detalhado
+        toast({
+          title: "Grupo atualizado",
+          description: message || "Você saiu do grupo com sucesso",
+          variant: "default",
+          duration: 5000 // Aumentar duração para dar tempo de ler
+        });
+      } else {
+        // Se não for o chat ativo, ainda precisamos mostrar uma notificação
+        toast({
+          title: "Grupo atualizado",
+          description: message || "Você saiu do grupo com sucesso",
+          variant: "default"
+        });
       }
     })
 
@@ -511,6 +529,30 @@ export default function ChatApp() {
           return msg
         }),
       )
+    })
+
+    socket.on("chat:memberRemoved", ({ chatId, userId, success, message }) => {
+      console.log("Remoção de membro confirmada:", { chatId, userId, success, message });
+      
+      // Mostrar feedback visual sobre a ação
+      if (success) {
+        toast({
+          title: "Ação concluída",
+          description: message || "Participante removido com sucesso",
+          variant: "default"
+        });
+      }
+    })
+
+    socket.on("error", ({ message, code }) => {
+      console.error("Erro recebido do servidor:", { message, code });
+      
+      toast({
+        title: "Erro na operação",
+        description: message || "Ocorreu um erro ao processar sua solicitação",
+        variant: "destructive",
+        duration: 5000 // Aumentar duração para dar tempo de ler
+      });
     })
 
     return () => {
@@ -996,23 +1038,17 @@ export default function ChatApp() {
 
   const handleLeaveGroup = (groupId: string) => {
     if (socket && user) {
+      toast({
+        title: "Saindo do grupo...",
+        description: "Aguarde enquanto processamos sua solicitação"
+      })
+      
       socket.emit("chat:leave", {
         chatId: groupId,
         userId: user.id
       })
       
-      if (activeChat?.id === groupId) {
-        setActiveChat(null)
-        setMessages([])
-      }
-      
-      // Remover o grupo da lista de chats do usuário
-      setChats(prev => prev.filter(chat => chat.id !== groupId))
-      
-      toast({
-        title: "Grupo abandonado",
-        description: "Você saiu do grupo com sucesso"
-      })
+      // Removemos a atualização local do estado, vamos esperar a confirmação do servidor via evento "chat:left"
     }
   }
 

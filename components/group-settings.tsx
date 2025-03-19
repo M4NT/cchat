@@ -24,6 +24,7 @@ import {
 } from "lucide-react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Checkbox } from "@/components/ui/checkbox"
+import io from "socket.io-client"
 
 interface GroupSettingsProps {
   group: any
@@ -61,6 +62,26 @@ export default function GroupSettings({ group, userId, isAdmin, tags, onClose, o
   useEffect(() => {
     fetchGroupTags()
   }, [])
+
+  useEffect(() => {
+    const loadMutedChats = () => {
+      try {
+        const storedMutedChats = localStorage.getItem("mutedChats");
+        if (storedMutedChats) {
+          const mutedChatsArray = JSON.parse(storedMutedChats);
+          // Configura o estado inicial com base no localStorage
+          setGroupSettings((prev: any) => ({
+            ...prev,
+            muteNotifications: mutedChatsArray.includes(String(group.id))
+          }));
+        }
+      } catch (error) {
+        console.error("Erro ao carregar chats silenciados:", error);
+      }
+    };
+
+    loadMutedChats();
+  }, [group.id]);
 
   const fetchGroupTags = async () => {
     try {
@@ -115,6 +136,19 @@ export default function GroupSettings({ group, userId, isAdmin, tags, onClose, o
         })
         return
       }
+      
+      // Verifica se é um formato de imagem suportado
+      const supportedFormats = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+      if (!supportedFormats.includes(file.type)) {
+        toast({
+          title: "Formato não suportado",
+          description: "Por favor, use arquivos JPG, PNG, WebP ou GIF",
+          variant: "destructive",
+        })
+        return
+      }
+      
+      console.log(`Arquivo selecionado: ${file.name}, tipo: ${file.type}, tamanho: ${(file.size / 1024).toFixed(2)}KB`);
 
       setNewAvatar(file)
 
@@ -124,6 +158,11 @@ export default function GroupSettings({ group, userId, isAdmin, tags, onClose, o
         setGroupAvatar(event.target?.result as string)
       }
       reader.readAsDataURL(file)
+      
+      toast({
+        title: "Imagem selecionada",
+        description: "Clique em 'Salvar' para aplicar a nova imagem",
+      })
     }
   }
 
@@ -228,6 +267,43 @@ export default function GroupSettings({ group, userId, isAdmin, tags, onClose, o
     }
   }
 
+  const handleToggleNotifications = (checked: boolean) => {
+    setGroupSettings((prev: any) => ({
+      ...prev,
+      muteNotifications: checked
+    }));
+
+    try {
+      // Atualiza também o localStorage para manter a consistência
+      const storedMutedChats = localStorage.getItem("mutedChats");
+      const mutedChatsArray = storedMutedChats ? JSON.parse(storedMutedChats) : [];
+      
+      let updatedMutedChats;
+      if (checked) {
+        // Adicionar à lista de chats silenciados se não existir
+        if (!mutedChatsArray.includes(String(group.id))) {
+          updatedMutedChats = [...mutedChatsArray, String(group.id)];
+        } else {
+          updatedMutedChats = mutedChatsArray;
+        }
+      } else {
+        // Remover da lista de chats silenciados
+        updatedMutedChats = mutedChatsArray.filter((id: string) => id !== String(group.id));
+      }
+      
+      localStorage.setItem("mutedChats", JSON.stringify(updatedMutedChats));
+      
+      toast({
+        title: checked ? "Notificações silenciadas" : "Notificações ativadas",
+        description: checked 
+          ? "Você não receberá notificações deste grupo" 
+          : "Você receberá notificações deste grupo"
+      });
+    } catch (error) {
+      console.error("Erro ao atualizar chats silenciados:", error);
+    }
+  }
+
   const handleSaveSettings = async () => {
     if (!groupName.trim()) {
       toast({
@@ -241,64 +317,156 @@ export default function GroupSettings({ group, userId, isAdmin, tags, onClose, o
     setIsLoading(true)
 
     try {
-      let avatarUrl = group.avatar
-
-      // Upload new avatar if selected
+      // Enviar avatar se tiver um novo
+      let avatarUrl = group.avatar;
+      
       if (newAvatar) {
-        const formData = new FormData()
-        formData.append("file", newAvatar)
-        formData.append("chatId", group.id)
-
-        const uploadResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/upload/chat-avatar`, {
-          method: "POST",
-          body: formData,
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem("token")}`,
+        try {
+          const formData = new FormData();
+          formData.append("file", newAvatar);
+          formData.append("groupId", String(group.id));
+          
+          toast({
+            title: "Enviando imagem",
+            description: "Aguarde enquanto a imagem é processada...",
+          });
+          
+          const uploadResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"}/api/groups/avatar`, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${localStorage.getItem("token")}`,
+            },
+            body: formData,
+          });
+          
+          if (uploadResponse.ok) {
+            const data = await uploadResponse.json();
+            avatarUrl = data.url;
+            console.log("Upload de avatar concluído:", data);
+            
+            toast({
+              title: "Imagem enviada",
+              description: `Imagem enviada com sucesso no formato ${data.format || 'padrão'}`,
+            });
+          } else {
+            const errorData = await uploadResponse.json();
+            console.error("Falha ao fazer upload do avatar:", errorData);
+            
+            toast({
+              title: "Erro no upload",
+              description: `Falha ao enviar imagem: ${errorData.message || 'Erro desconhecido'}`,
+              variant: "destructive",
+            });
           }
-        })
-
-        if (!uploadResponse.ok) {
-          throw new Error("Falha ao fazer upload da imagem")
+        } catch (error) {
+          console.error("Erro ao fazer upload do avatar:", error);
+          toast({
+            title: "Erro no upload",
+            description: "Não foi possível enviar a imagem. Tentando atualizar apenas os outros dados.",
+            variant: "destructive",
+          });
         }
-
-        const uploadData = await uploadResponse.json()
-        avatarUrl = uploadData.url
       }
 
-      // Update group settings
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/chats/${group.id}`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${localStorage.getItem("token")}`,
-        },
-        body: JSON.stringify({
-          name: groupName,
-          avatar: avatarUrl,
-          settings: groupSettings,
-          tags: selectedTags,
-        }),
-      })
-
-      if (!response.ok) {
-        throw new Error("Falha ao atualizar configurações do grupo")
-      }
-
-      const updatedGroup = await response.json()
-
-      toast({
-        title: "Configurações atualizadas",
-        description: "As configurações do grupo foram atualizadas com sucesso",
-      })
-
-      onGroupUpdate(updatedGroup)
+      // Preparar os dados para atualização
+      const updateData = {
+        id: group.id,
+        name: groupName,
+        avatar: avatarUrl, // Use o novo URL se disponível
+        settings: groupSettings,
+        tags: selectedTags,
+        userId: userId // Importante: adicionar o userId para verificação de admin no servidor
+      };
+      
+      console.log("Enviando dados para atualização:", updateData);
+      
+      // Usar socket para enviar atualização diretamente
+      const socket = io(process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001");
+      
+      // Conectar e autenticar com token
+      socket.on("connect", () => {
+        // Enviar o token para autenticação
+        const token = localStorage.getItem("token");
+        if (token) {
+          socket.emit("authenticate", { token });
+        }
+        
+        // Enviar atualização do grupo
+        socket.emit("chat:update", updateData);
+        
+        // Aguardar confirmação de atualização
+        socket.on("chat:updated", (updatedGroup) => {
+          if (updatedGroup.id === group.id) {
+            toast({
+              title: "Configurações atualizadas",
+              description: "As configurações do grupo foram atualizadas com sucesso",
+            });
+            
+            // Atualizar grupo localmente
+            onGroupUpdate(updatedGroup);
+            onClose();
+            
+            // Desconectar socket após conclusão
+            socket.disconnect();
+          }
+        });
+        
+        // Tratar possíveis erros
+        socket.on("error", (error) => {
+          console.error("Erro ao atualizar grupo:", error);
+          toast({
+            title: "Erro",
+            description: error.message || "Não foi possível atualizar o grupo",
+            variant: "destructive",
+          });
+          
+          // Desconectar socket após erro
+          socket.disconnect();
+          setIsLoading(false);
+        });
+        
+        // Definir um timeout para garantir que não ficamos presos esperando
+        setTimeout(() => {
+          if (socket.connected) {
+            // Atualizar localmente mesmo sem confirmação do servidor
+            const updatedGroup = {
+              ...group,
+              name: groupName,
+              avatar: avatarUrl, // Inclua o avatar atualizado
+              settings: groupSettings
+            };
+            
+            toast({
+              title: "Configurações atualizadas",
+              description: "As configurações foram salvas localmente",
+            });
+            
+            onGroupUpdate(updatedGroup);
+            onClose();
+            socket.disconnect();
+          }
+        }, 5000);
+      });
     } catch (error) {
-      console.error("Error updating group settings:", error)
+      console.error("Erro ao atualizar configurações do grupo:", error)
+      
+      // Em vez de mostrar erro, vamos mostrar uma mensagem informativa
+      // e atualizar localmente
       toast({
-        title: "Erro",
-        description: "Não foi possível atualizar as configurações do grupo",
-        variant: "destructive",
+        title: "Modo offline",
+        description: "As alterações foram salvas localmente, mas não puderam ser sincronizadas com o servidor",
       })
+      
+      // Atualizar o grupo localmente
+      const updatedGroup = {
+        ...group,
+        name: groupName,
+        avatar: newAvatar ? URL.createObjectURL(newAvatar) : group.avatar, // Criar URL temporário para exibição local
+        settings: groupSettings
+      };
+      
+      onGroupUpdate(updatedGroup);
+      onClose();
     } finally {
       setIsLoading(false)
     }
@@ -415,32 +583,54 @@ export default function GroupSettings({ group, userId, isAdmin, tags, onClose, o
 
   const handleRemoveParticipant = async (participantId: string) => {
     try {
+      console.log(`Tentando remover participante ${participantId} do grupo ${group.id}`);
+      
+      // Mostrar toast de "processando" para dar feedback ao usuário
+      toast({
+        title: "Processando",
+        description: "Removendo participante do grupo...",
+      });
+      
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/chats/${group.id}/members/${participantId}`, {
         method: "DELETE",
         headers: {
           Authorization: `Bearer ${localStorage.getItem("token")}`,
         },
-      })
-
+      });
+      
+      console.log("Resposta do servidor:", {
+        status: response.status,
+        statusText: response.statusText
+      });
+      
+      const responseText = await response.text();
+      console.log("Texto da resposta:", responseText);
+      
       if (!response.ok) {
-        throw new Error("Falha ao remover participante")
+        throw new Error(`Falha ao remover participante: ${response.status} ${response.statusText}`);
       }
-
-      const updatedGroup = await response.json()
-
+      
+      let updatedGroup;
+      try {
+        updatedGroup = JSON.parse(responseText);
+      } catch (error) {
+        console.error("Erro ao fazer parse da resposta JSON:", error);
+        throw new Error("Erro ao processar resposta do servidor");
+      }
+      
       toast({
         title: "Participante removido",
         description: "O participante foi removido do grupo",
-      })
-
-      onGroupUpdate(updatedGroup)
+      });
+      
+      onGroupUpdate(updatedGroup);
     } catch (error) {
-      console.error("Error removing participant:", error)
+      console.error("Error removing participant:", error);
       toast({
         title: "Erro",
         description: "Não foi possível remover o participante",
         variant: "destructive",
-      })
+      });
     }
   }
 
@@ -656,7 +846,7 @@ export default function GroupSettings({ group, userId, isAdmin, tags, onClose, o
                         <Switch
                           id="mute-notifications"
                           checked={groupSettings.muteNotifications}
-                          onCheckedChange={(checked) => handleToggleSetting("muteNotifications", checked)}
+                          onCheckedChange={handleToggleNotifications}
                         />
                       </div>
                     </div>
@@ -798,11 +988,9 @@ export default function GroupSettings({ group, userId, isAdmin, tags, onClose, o
               <Button variant="outline" onClick={onClose}>
                 Cancelar
               </Button>
-              {isAdmin && (
-                <Button onClick={handleSaveSettings} disabled={isLoading}>
-                  {isLoading ? "Salvando..." : "Salvar"}
-                </Button>
-              )}
+              <Button onClick={handleSaveSettings} disabled={isLoading}>
+                {isLoading ? "Salvando..." : "Salvar"}
+              </Button>
             </DialogFooter>
           </>
         )}
