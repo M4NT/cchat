@@ -28,14 +28,23 @@ import io from "socket.io-client"
 
 interface GroupSettingsProps {
   group: any
-  userId: string
-  isAdmin: boolean
-  tags: any[]
+  userId?: string
+  isAdmin?: boolean
+  tags?: any[]
   onClose: () => void
-  onGroupUpdate: (updatedGroup: any) => void
+  onGroupUpdate?: (updatedGroup: any) => void
+  onRemoveParticipant?: (participantId: string, participantName: string) => void
 }
 
-export default function GroupSettings({ group, userId, isAdmin, tags, onClose, onGroupUpdate }: GroupSettingsProps) {
+export default function GroupSettings({ 
+  group, 
+  userId = '', 
+  isAdmin = false, 
+  tags = [], 
+  onClose, 
+  onGroupUpdate = () => {}, 
+  onRemoveParticipant 
+}: GroupSettingsProps) {
   const [activeTab, setActiveTab] = useState("general")
   const [groupName, setGroupName] = useState(group.name)
   const [groupAvatar, setGroupAvatar] = useState<string | null>(group.avatar || null)
@@ -404,6 +413,8 @@ export default function GroupSettings({ group, userId, isAdmin, tags, onClose, o
             
             // Atualizar grupo localmente
             onGroupUpdate(updatedGroup);
+            
+            // Fechar o modal após salvar com sucesso
             onClose();
             
             // Desconectar socket após conclusão
@@ -442,8 +453,13 @@ export default function GroupSettings({ group, userId, isAdmin, tags, onClose, o
             });
             
             onGroupUpdate(updatedGroup);
+            
+            // Fechar o modal mesmo sem confirmação do servidor
             onClose();
+            
+            // Desconectar após timeout
             socket.disconnect();
+            setIsLoading(false);
           }
         }, 5000);
       });
@@ -581,7 +597,12 @@ export default function GroupSettings({ group, userId, isAdmin, tags, onClose, o
     }
   }
 
-  const handleRemoveParticipant = async (participantId: string) => {
+  const handleRemoveParticipant = async (participantId: string, participantName: string) => {
+    if (onRemoveParticipant) {
+      onRemoveParticipant(participantId, participantName);
+      return;
+    }
+    
     try {
       console.log(`Tentando remover participante ${participantId} do grupo ${group.id}`);
       
@@ -927,7 +948,7 @@ export default function GroupSettings({ group, userId, isAdmin, tags, onClose, o
                             <Button
                               variant="ghost"
                               size="icon"
-                              onClick={() => handleRemoveParticipant(participant.id)}
+                              onClick={() => handleRemoveParticipant(participant.id, participant.name)}
                               title="Remover do grupo"
                               className="opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:text-destructive"
                             >

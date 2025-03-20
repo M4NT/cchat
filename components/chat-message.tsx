@@ -206,7 +206,45 @@ export default function ChatMessage({
       });
       
       audio.addEventListener("error", (e) => {
-        console.error("Erro ao carregar áudio:", e.target instanceof HTMLAudioElement ? e.target.error : "Erro desconhecido");
+        const error = e.target instanceof HTMLAudioElement ? e.target.error : null;
+        
+        let errorMessage = "Erro desconhecido";
+        
+        if (error instanceof MediaError) {
+          switch (error.code) {
+            case MediaError.MEDIA_ERR_ABORTED:
+              errorMessage = "Reprodução interrompida";
+              break;
+            case MediaError.MEDIA_ERR_NETWORK:
+              errorMessage = "Erro de rede ao carregar áudio";
+              break;
+            case MediaError.MEDIA_ERR_DECODE:
+              errorMessage = "Erro ao decodificar o áudio";
+              break;
+            case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED:
+              errorMessage = "Formato de áudio não suportado";
+              break;
+            default:
+              errorMessage = `Erro ao carregar áudio (código: ${error.code})`;
+          }
+        }
+        
+        // Verificar se a URL do áudio é válida antes de tentar manipulá-la
+        let audioFileName = "desconhecido";
+        try {
+          if (audio?.src) {
+            audioFileName = audio.src.split('/').pop() || "desconhecido";
+          }
+        } catch (e) {
+          audioFileName = "erro ao obter nome";
+        }
+        
+        console.error("Erro ao carregar áudio:", { 
+          message: errorMessage, 
+          code: error instanceof MediaError ? error.code : "não disponível",
+          audioSrc: audioFileName
+        });
+        
         setIsPlaying(false);
       });
       

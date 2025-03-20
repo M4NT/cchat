@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { useToast } from "@/hooks/use-toast"
 
 interface User {
   id: string
@@ -23,10 +24,14 @@ export default function UserList({ currentUserId, onUserSelect }: UserListProps)
   const [users, setUsers] = useState<User[]>([])
   const [searchQuery, setSearchQuery] = useState("")
   const [isLoading, setIsLoading] = useState(true)
+  const { toast } = useToast()
 
   useEffect(() => {
     const fetchUsers = async () => {
       try {
+        setIsLoading(true)
+        console.log("Buscando usuários...")
+        
         const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/users`, {
           headers: {
             Authorization: `Bearer ${localStorage.getItem("token")}`,
@@ -35,19 +40,57 @@ export default function UserList({ currentUserId, onUserSelect }: UserListProps)
 
         if (response.ok) {
           const data = await response.json()
-          // Filtra o usuário atual da lista, garantindo que a comparação seja feita com strings
-          const filteredUsers = data.users.filter((user: User) => String(user.id) !== String(currentUserId))
+          console.log("Resposta da API:", data)
+          
+          // Verificar o formato dos dados recebidos
+          let userList: User[] = []
+          
+          if (data.users && Array.isArray(data.users)) {
+            // Formato { users: [...] }
+            userList = data.users
+          } else if (Array.isArray(data)) {
+            // Formato array direto
+            userList = data
+          } else {
+            console.error("Formato de dados desconhecido:", data)
+            toast({
+              title: "Erro",
+              description: "Formato de dados desconhecido ao carregar usuários",
+              variant: "destructive",
+            })
+            setUsers([])
+            return
+          }
+          
+          // Filtra o usuário atual da lista
+          const filteredUsers = userList.filter((user: User) => 
+            String(user.id) !== String(currentUserId)
+          )
+          
+          console.log("Usuários filtrados:", filteredUsers)
           setUsers(filteredUsers)
+        } else {
+          console.error("Erro na resposta da API:", response.status)
+          toast({
+            title: "Erro",
+            description: `Falha ao carregar usuários (${response.status})`,
+            variant: "destructive",
+          })
         }
       } catch (error) {
         console.error("Erro ao buscar usuários:", error)
+        toast({
+          title: "Erro",
+          description: "Falha ao conectar com o servidor",
+          variant: "destructive",
+        })
       } finally {
         setIsLoading(false)
       }
     }
 
     fetchUsers()
-  }, [currentUserId])
+  }, [currentUserId, toast])
 
   const filteredUsers = users.filter((user) =>
     user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||

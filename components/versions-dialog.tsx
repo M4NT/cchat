@@ -21,6 +21,17 @@ export type Version = {
 
 const versions: Version[] = [
   {
+    version: "1.5.1",
+    date: "20/03/2025",
+    changes: [
+      "Correção no upload de arquivos e documentos",
+      "Tratamento de erros aprimorado para arquivos e imagens",
+      "Correção no carregamento de áudio para evitar erros no console",
+      "Melhorias na estabilidade geral do sistema",
+      "Correções de bugs no tratamento de tipos de arquivos"
+    ]
+  },
+  {
     version: "1.5.0",
     date: "19/03/2025",
     changes: [

@@ -30,13 +30,15 @@ export default function CreateGroup({ userId, onClose, onGroupCreated }: CreateG
   const [selectedUsers, setSelectedUsers] = useState<string[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const { toast } = useToast()
+  const [avatarUrl, setAvatarUrl] = useState<string>("")
+  const [isUploading, setIsUploading] = useState(false)
 
   useEffect(() => {
     const fetchUsers = async () => {
       setIsLoading(true)
 
       try {
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/users`, {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/users?q=${searchQuery}`, {
           headers: {
             Authorization: `Bearer ${localStorage.getItem("token")}`,
           },
@@ -47,8 +49,8 @@ export default function CreateGroup({ userId, onClose, onGroupCreated }: CreateG
         }
 
         const data = await response.json()
-        const filteredUsers = data.users.filter((user: User) => String(user.id) !== String(userId))
-        setUsers(filteredUsers)
+        console.log("Usuários carregados:", data)
+        setUsers(Array.isArray(data) ? data : [])
       } catch (error) {
         console.error("Error fetching users:", error)
         toast({
@@ -62,7 +64,7 @@ export default function CreateGroup({ userId, onClose, onGroupCreated }: CreateG
     }
 
     fetchUsers()
-  }, [userId])
+  }, [searchQuery])
 
   const handleUserSelect = (userId: string) => {
     setSelectedUsers((prev) => {
@@ -98,10 +100,66 @@ export default function CreateGroup({ userId, onClose, onGroupCreated }: CreateG
     const groupData = {
       name: groupName.trim(),
       participants: selectedParticipants,
+      avatar: avatarUrl
     }
 
+    console.log("Criando grupo com dados:", groupData);
     onGroupCreated(groupData)
   }
+
+  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    
+    const file = e.target.files[0];
+    const maxSize = 5 * 1024 * 1024; // 5MB
+    
+    if (file.size > maxSize) {
+      toast({
+        title: "Arquivo muito grande",
+        description: "O tamanho máximo permitido é 5MB",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    try {
+      setIsUploading(true);
+      
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("groupId", "temp"); // Será substituído pelo ID real após a criação
+      
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/groups/avatar`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("token")}`,
+        },
+        body: formData,
+      });
+      
+      if (!response.ok) {
+        throw new Error("Falha ao enviar avatar");
+      }
+      
+      const data = await response.json();
+      console.log("Avatar do grupo carregado:", data);
+      setAvatarUrl(data.url);
+      
+      toast({
+        title: "Sucesso",
+        description: "Avatar do grupo carregado com sucesso"
+      });
+    } catch (error) {
+      console.error("Erro ao carregar avatar:", error);
+      toast({
+        title: "Erro",
+        description: "Não foi possível carregar o avatar",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUploading(false);
+    }
+  };
 
   const filteredUsers = searchQuery
     ? users.filter(
@@ -119,6 +177,59 @@ export default function CreateGroup({ userId, onClose, onGroupCreated }: CreateG
         </DialogHeader>
 
         <div className="space-y-4">
+          <div className="flex flex-col items-center gap-2">
+            <Label htmlFor="group-avatar">Avatar do Grupo</Label>
+            <div className="relative group">
+              <Avatar 
+                className="h-20 w-20 cursor-pointer border-2 border-primary hover:border-primary/80 transition-all duration-300" 
+                onClick={() => document.getElementById('avatar-input')?.click()}
+              >
+                {avatarUrl ? (
+                  <AvatarImage src={avatarUrl} />
+                ) : (
+                  <AvatarFallback className="bg-white">
+                    <Users className="h-8 w-8 text-gray-400" />
+                  </AvatarFallback>
+                )}
+              </Avatar>
+              
+              <div 
+                className="absolute bottom-0 right-0 h-7 w-7 bg-primary rounded-full flex items-center justify-center cursor-pointer shadow-md"
+                onClick={() => document.getElementById('avatar-input')?.click()}
+              >
+                <svg 
+                  xmlns="http://www.w3.org/2000/svg" 
+                  width="12" 
+                  height="12" 
+                  viewBox="0 0 24 24" 
+                  fill="none" 
+                  stroke="currentColor" 
+                  strokeWidth="2" 
+                  strokeLinecap="round" 
+                  strokeLinejoin="round" 
+                  className="text-white"
+                >
+                  <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path>
+                </svg>
+              </div>
+              
+              <input 
+                type="file" 
+                id="avatar-input" 
+                className="hidden" 
+                accept="image/*" 
+                onChange={handleAvatarChange}
+                disabled={isUploading}
+              />
+              {isUploading && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-full">
+                  <div className="animate-spin h-5 w-5 border-2 border-white border-opacity-50 border-t-transparent rounded-full"></div>
+                </div>
+              )}
+            </div>
+            <span className="text-xs text-gray-500">Clique para selecionar uma imagem</span>
+          </div>
+
           <div>
             <Label htmlFor="group-name">Nome do Grupo</Label>
             <Input

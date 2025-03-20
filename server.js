@@ -11,6 +11,7 @@ const fs = require("fs")
 const sharp = require("sharp")
 const schedule = require("node-schedule")
 const crypto = require("crypto")
+const { v4: uuid } = require("uuid")
 
 // Initialize express app
 const app = express()
@@ -27,21 +28,43 @@ app.use(express.json())
 app.use("/uploads", express.static(path.join(__dirname, "uploads")))
 app.use("/uploads/user_avatars", express.static(path.join(__dirname, "uploads", "user_avatars"))) // Rota específica para avatares de usuários
 
-// Diretórios para upload de arquivos
-const uploadsDir = path.join(__dirname, "uploads")
-const avatarsDir = path.join(uploadsDir, "avatars")
-const userAvatarsDir = path.join(uploadsDir, "user_avatars") // Pasta específica para avatares de usuários
-const filesDir = path.join(uploadsDir, "files")
-const groupsDir = path.join(uploadsDir, "groups")
-const audioDir = path.join(uploadsDir, "audio")
+// Diretórios de upload
+const uploadsDir = path.join(__dirname, 'uploads');
+const imagesDir = path.join(uploadsDir, 'images');
+const filesDir = path.join(uploadsDir, 'files');
+const audioDir = path.join(uploadsDir, 'audio');
+const userAvatarsDir = path.join(uploadsDir, 'user_avatars');
+const groupsDir = path.join(uploadsDir, 'groups');
+const groupAvatarsDir = path.join(uploadsDir, 'group_avatars');
 
 // Criar diretórios se não existirem
-if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir)
-if (!fs.existsSync(avatarsDir)) fs.mkdirSync(avatarsDir)
-if (!fs.existsSync(userAvatarsDir)) fs.mkdirSync(userAvatarsDir)
-if (!fs.existsSync(filesDir)) fs.mkdirSync(filesDir)
-if (!fs.existsSync(groupsDir)) fs.mkdirSync(groupsDir)
-if (!fs.existsSync(audioDir)) fs.mkdirSync(audioDir)
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
+if (!fs.existsSync(imagesDir)) {
+  fs.mkdirSync(imagesDir, { recursive: true });
+}
+
+if (!fs.existsSync(filesDir)) {
+  fs.mkdirSync(filesDir, { recursive: true });
+}
+
+if (!fs.existsSync(audioDir)) {
+  fs.mkdirSync(audioDir, { recursive: true });
+}
+
+if (!fs.existsSync(userAvatarsDir)) {
+  fs.mkdirSync(userAvatarsDir, { recursive: true });
+}
+
+if (!fs.existsSync(groupsDir)) {
+  fs.mkdirSync(groupsDir, { recursive: true });
+}
+
+if (!fs.existsSync(groupAvatarsDir)) {
+  fs.mkdirSync(groupAvatarsDir, { recursive: true });
+}
 
 // Set up multer storage
 const storage = multer.diskStorage({
@@ -51,7 +74,7 @@ const storage = multer.diskStorage({
     const isAudio = req.path.includes("audio")
     
     if (isAvatar) {
-      cb(null, avatarsDir)
+      cb(null, imagesDir)
     } else if (isGroupAvatar) {
       cb(null, groupsDir)
     } else if (isAudio) {
@@ -205,7 +228,47 @@ async function initDatabase() {
       )
     `)
 
-    console.log("Database initialized successfully")
+    // Create polls table
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS polls (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        chat_id INT NOT NULL,
+        creator_id INT NOT NULL,
+        question TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        expires_at TIMESTAMP NULL,
+        FOREIGN KEY (chat_id) REFERENCES chats(id) ON DELETE CASCADE,
+        FOREIGN KEY (creator_id) REFERENCES users(id) ON DELETE CASCADE
+      )
+    `)
+    
+    // Create poll options table
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS poll_options (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        poll_id INT NOT NULL,
+        text VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (poll_id) REFERENCES polls(id) ON DELETE CASCADE
+      )
+    `)
+    
+    // Create poll votes table
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS poll_votes (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        poll_id INT NOT NULL,
+        option_id INT NOT NULL,
+        user_id INT NOT NULL,
+        voted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (poll_id) REFERENCES polls(id) ON DELETE CASCADE,
+        FOREIGN KEY (option_id) REFERENCES poll_options(id) ON DELETE CASCADE,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        UNIQUE KEY unique_user_vote (poll_id, user_id)
+      )
+    `)
+
+    console.log("Database tables initialized")
   } catch (error) {
     console.error("Error initializing database:", error)
     throw error
@@ -1150,211 +1213,85 @@ io.on("connection", (socket) => {
       );
       
       if (chatResults.length === 0) {
-        return socket.emit("error", { message: "Chat não encontrado" });
+        return socket.emit("error", { message: "Grupo não encontrado" });
       }
       
-      const chat = chatResults[0];
-      
-      // Apenas é possível sair de grupos
-      if (!chat.is_group) {
-        return socket.emit("error", { message: "Não é possível sair de chats individuais" });
+      if (!chatResults[0].is_group) {
+        return socket.emit("error", { message: "Esta operação só é válida para grupos" });
       }
       
-      // Verificar se o usuário é membro do grupo
-      const [memberResults] = await pool.execute(
+      // Verificar se o usuário está no grupo
+      const [participantResults] = await pool.execute(
         "SELECT * FROM chat_participants WHERE chat_id = ? AND user_id = ?",
         [chatId, userId]
       );
       
-      if (memberResults.length === 0) {
-        return socket.emit("error", { message: "Você não é participante deste grupo" });
+      if (participantResults.length === 0) {
+        return socket.emit("error", { message: "Você não é membro deste grupo" });
       }
       
-      // Verificar se o usuário é administrador
-      const [adminCheck] = await pool.execute(
-        "SELECT is_admin FROM chat_participants WHERE chat_id = ? AND user_id = ?",
-        [chatId, userId]
+      // Verificar se o usuário é o último administrador
+      const [adminResults] = await pool.execute(
+        "SELECT * FROM chat_participants WHERE chat_id = ? AND is_admin = 1",
+        [chatId]
       );
       
-      const isAdmin = adminCheck.length > 0 && adminCheck[0].is_admin;
+      const isLastAdmin = adminResults.length === 1 && adminResults[0].user_id === userId;
       
-      // Se o usuário for administrador, precisamos verificar se é o único
-      if (isAdmin) {
-        const [adminCountResult] = await pool.execute(
-          "SELECT COUNT(*) as count FROM chat_participants WHERE chat_id = ? AND is_admin = 1",
-          [chatId]
+      if (isLastAdmin) {
+        const [otherParticipantsResults] = await pool.execute(
+          "SELECT user_id FROM chat_participants WHERE chat_id = ? AND user_id != ?",
+          [chatId, userId]
         );
         
-        const adminCount = adminCountResult[0].count;
-        
-        // Se for o único administrador, precisamos promover outro participante antes
-        if (adminCount === 1) {
-          // Buscar outro participante para promover a administrador
-          const [otherParticipants] = await pool.execute(
-            "SELECT user_id FROM chat_participants WHERE chat_id = ? AND user_id != ? LIMIT 1",
-            [chatId, userId]
+        if (otherParticipantsResults.length > 0) {
+          // Promover outro participante a administrador
+          const newAdminId = otherParticipantsResults[0].user_id;
+          await pool.execute(
+            "UPDATE chat_participants SET is_admin = 1 WHERE chat_id = ? AND user_id = ?",
+            [chatId, newAdminId]
           );
           
-          if (otherParticipants.length > 0) {
-            // Promover outro participante a administrador antes de sair
-            await pool.execute(
-              "UPDATE chat_participants SET is_admin = 1 WHERE chat_id = ? AND user_id = ?",
-              [chatId, otherParticipants[0].user_id]
-            );
-            
-            console.log(`Usuário ${otherParticipants[0].user_id} promovido a administrador do grupo ${chatId}`);
-            
-            // Salvar mensagem do sistema sobre a promoção
-            const [newAdminInfo] = await pool.execute(
-              "SELECT name FROM users WHERE id = ?",
-              [otherParticipants[0].user_id]
-            );
-            
-            const newAdminName = newAdminInfo.length > 0 ? newAdminInfo[0].name : "Novo administrador";
-            
-            await pool.execute(
-              "INSERT INTO messages (chat_id, sender_id, content, type) VALUES (?, ?, ?, ?)",
-              [chatId, null, `${newAdminName} foi promovido a administrador do grupo`, "system"]
-            );
-          }
+          console.log(`Novo administrador promovido: ${newAdminId}`);
         }
       }
       
-      // Remover o usuário como participante do grupo
+      // Remover o usuário do grupo
       await pool.execute(
         "DELETE FROM chat_participants WHERE chat_id = ? AND user_id = ?",
         [chatId, userId]
       );
       
-      // Verificar se ainda há participantes no grupo
+      console.log(`Usuário ${userId} removido do grupo ${chatId}`);
+      
+      // Notificar o usuário que saiu
+      socket.emit("chat:left", { 
+        chatId, 
+        message: "Você saiu do grupo com sucesso" 
+      });
+      
+      // Notificar outros participantes
+      socket.to(`chat:${chatId}`).emit("chat:memberRemoved", {
+        chatId,
+        userId,
+        success: true,
+        message: `Um participante saiu do grupo`
+      });
+      
+      // Verificar se não há mais participantes no grupo
       const [remainingParticipants] = await pool.execute(
         "SELECT COUNT(*) as count FROM chat_participants WHERE chat_id = ?",
         [chatId]
       );
       
-      // Se não há mais participantes, excluir o grupo
       if (remainingParticipants[0].count === 0) {
+        // Se não há mais participantes, excluir o grupo
+        console.log(`Grupo ${chatId} não tem mais participantes, excluindo...`);
         await pool.execute("DELETE FROM chats WHERE id = ?", [chatId]);
-        console.log(`Grupo ${chatId} excluído por não ter mais participantes`);
-        
-        // Notificar o usuário que saiu que o grupo foi excluído
-        socket.emit("chat:left", { 
-          chatId,
-          message: "Você saiu do grupo. O grupo foi excluído por não ter mais participantes."
-        });
-        
-        return;
       }
       
-      // Se o usuário que saiu era o último administrador, designar outro participante como admin
-      const [adminResults] = await pool.execute(
-        "SELECT COUNT(*) as count FROM chat_participants WHERE chat_id = ? AND is_admin = 1",
-        [chatId]
-      );
-      
-      if (adminResults[0].count === 0) {
-        // Não há mais admins, designar o primeiro participante como admin
-        const [firstParticipant] = await pool.execute(
-          "SELECT user_id FROM chat_participants WHERE chat_id = ? LIMIT 1",
-          [chatId]
-        );
-        
-        if (firstParticipant.length > 0) {
-          await pool.execute(
-            "UPDATE chat_participants SET is_admin = 1 WHERE chat_id = ? AND user_id = ?",
-            [chatId, firstParticipant[0].user_id]
-          );
-          console.log(`Usuário ${firstParticipant[0].user_id} promovido a administrador do grupo ${chatId}`);
-        }
-      }
-      
-      // Obter informações do usuário que saiu
-      const [userInfo] = await pool.execute(
-        "SELECT name FROM users WHERE id = ?",
-        [userId]
-      );
-      
-      const userName = userInfo.length > 0 ? userInfo[0].name : "Usuário";
-      
-      // Salvar uma mensagem do sistema no grupo informando a saída do usuário
-      const [messageResult] = await pool.execute(
-        "INSERT INTO messages (chat_id, sender_id, content, type) VALUES (?, ?, ?, ?)",
-        [chatId, null, `${userName} saiu do grupo`, "system"]
-      );
-      
-      // Enviar mensagem de atualização do grupo para todos os participantes
-      const systemMessageObj = {
-        id: messageResult.insertId,
-        chatId: String(chatId),
-        content: `${userName} saiu do grupo`,
-        timestamp: new Date().toISOString(),
-        type: "system"
-      };
-      
-      io.to(`chat:${chatId}`).emit("message:new", systemMessageObj);
-      
-      // Obter informações do grupo atualizado
-      const [updatedGroupData] = await pool.execute(
-        `
-        SELECT 
-          c.id, c.name, c.is_group, c.avatar, c.created_at, c.updated_at,
-          GROUP_CONCAT(DISTINCT u.id) as participant_ids,
-          GROUP_CONCAT(DISTINCT u.name) as participant_names,
-          GROUP_CONCAT(DISTINCT u.email) as participant_emails,
-          GROUP_CONCAT(DISTINCT u.avatar) as participant_avatars,
-          GROUP_CONCAT(DISTINCT u.is_online) as participant_online_status,
-          GROUP_CONCAT(DISTINCT cp.is_admin) as participant_is_admin
-        FROM chats c
-        JOIN chat_participants cp ON c.id = cp.chat_id
-        JOIN users u ON cp.user_id = u.id
-        WHERE c.id = ?
-        GROUP BY c.id
-        `,
-        [chatId]
-      );
-      
-      if (updatedGroupData.length > 0) {
-        const updatedGroup = updatedGroupData[0];
-        
-        // Parse participant information
-        const participantIds = updatedGroup.participant_ids.split(',');
-        const participantNames = updatedGroup.participant_names.split(',');
-        const participantEmails = updatedGroup.participant_emails.split(',');
-        const participantAvatars = updatedGroup.participant_avatars.split(',');
-        const participantOnlineStatus = updatedGroup.participant_online_status.split(',').map(status => status === '1');
-        const participantIsAdmin = updatedGroup.participant_is_admin.split(',').map(status => status === '1');
-        
-        // Format participants array
-        updatedGroup.participants = participantIds.map((id, index) => ({
-          id: id.toString(),
-          name: participantNames[index],
-          email: participantEmails[index],
-          avatar: participantAvatars[index],
-          is_online: participantOnlineStatus[index],
-          isAdmin: participantIsAdmin[index]
-        }));
-        
-        // Remove concatenated fields
-        delete updatedGroup.participant_ids;
-        delete updatedGroup.participant_names;
-        delete updatedGroup.participant_emails;
-        delete updatedGroup.participant_avatars;
-        delete updatedGroup.participant_online_status;
-        delete updatedGroup.participant_is_admin;
-        
-        // Notificar todos os participantes sobre a atualização do grupo
-        io.to(`chat:${chatId}`).emit("chat:updated", updatedGroup);
-      }
-      
-      // Notificar o usuário que saiu que a operação foi bem-sucedida
-      socket.emit("chat:left", { 
-        chatId,
-        message: "Você saiu do grupo com sucesso"
-      });
-      
-      console.log(`Usuário ${userId} saiu do grupo ${chatId} com sucesso`);
     } catch (error) {
-      console.error("Error in chat:leave:", error);
+      console.error("Erro ao sair do grupo:", error);
       socket.emit("error", { message: "Falha ao sair do grupo" });
     }
   });
@@ -1363,6 +1300,23 @@ io.on("connection", (socket) => {
   socket.on("user:update", async (userData) => {
     try {
       console.log("Recebido evento user:update:", userData);
+      
+      // Verificar se o usuário é o proprietário do socket
+      const userId = userData.id;
+      let isAuthorized = false;
+      
+      // Verificar se o ID do usuário corresponde ao socket atual
+      for (const [id, socketId] of socketConnections.entries()) {
+        if (id === userId && socketId === socket.id) {
+          isAuthorized = true;
+          break;
+        }
+      }
+      
+      if (!isAuthorized) {
+        console.error(`Tentativa não autorizada de atualizar perfil de usuário ${userId} a partir do socket ${socket.id}`);
+        return socket.emit("error", { message: "Não autorizado a atualizar este perfil de usuário" });
+      }
       
       // Garantir que o avatar seja uma URL absoluta
       if (userData.avatar && !userData.avatar.startsWith('http')) {
@@ -1381,8 +1335,20 @@ io.on("connection", (socket) => {
       
       console.log("Usuário atualizado no banco de dados, enviando broadcast");
       
+      // Atualizar dados do usuário após a atualização
+      const [updatedUsers] = await pool.execute(
+        "SELECT id, name, email, avatar, is_online FROM users WHERE id = ?", 
+        [userData.id]
+      );
+      
+      if (!updatedUsers || updatedUsers.length === 0) {
+        throw new Error("Usuário não encontrado após atualização");
+      }
+      
+      const updatedUser = updatedUsers[0];
+      
       // Notify ALL connected clients, including the sender
-      io.emit("user:updated", userData);
+      io.emit("user:updated", updatedUser);
       
       // Broadcast to specific users in chats with this user
       const [userChats] = await pool.execute(
@@ -1393,7 +1359,7 @@ io.on("connection", (socket) => {
       if (userChats && userChats.length > 0) {
         console.log(`Notificando ${userChats.length} chats sobre a atualização do usuário`);
         userChats.forEach(chat => {
-          socket.to(`chat:${chat.id}`).emit("user:updated", userData);
+          socket.to(`chat:${chat.id}`).emit("user:updated", updatedUser);
         });
       }
       
@@ -1782,21 +1748,47 @@ app.post("/api/auth/login", async (req, res) => {
 })
 
 // Get users
-app.get("/api/users", async (req, res) => {
+app.get("/api/users", authenticateJWT, async (req, res) => {
   try {
-    const [users] = await pool.execute("SELECT id, name, email, avatar, is_online FROM users")
-
-    // Convert IDs to strings and format response
-    const formattedUsers = users.map(user => ({
-      ...user,
-      id: user.id.toString(),
-      is_online: Boolean(user.is_online)
-    }))
-
-    res.json({ users: formattedUsers })
+    const { q } = req.query;
+    const currentUserId = req.user.id;
+    
+    let query = `
+      SELECT id, name, email, avatar, is_online 
+      FROM users 
+      WHERE id != ? 
+    `;
+    
+    let params = [currentUserId];
+    
+    // Adicionar filtro de pesquisa se fornecido
+    if (q) {
+      query += `AND (name LIKE ? OR email LIKE ?)`;
+      params.push(`%${q}%`, `%${q}%`);
+    }
+    
+    query += ` ORDER BY name ASC`;
+    
+    console.log("Buscando usuários com query:", query);
+    console.log("Params:", params);
+    
+    const [users] = await pool.execute(query, params);
+    
+    console.log(`Encontrados ${users.length} usuários para seleção de grupo`);
+    
+    // Garantir que todos os avatares tenham URLs absolutas
+    users.forEach(user => {
+      if (user.avatar && !user.avatar.startsWith('http')) {
+        const host = process.env.PUBLIC_HOST || 'localhost:3001';
+        const protocol = process.env.NODE_ENV === "production" ? "https" : "http";
+        user.avatar = `${protocol}://${host}${user.avatar.startsWith('/') ? '' : '/'}${user.avatar}`;
+      }
+    });
+    
+    res.json(users);
   } catch (error) {
-    console.error("Error getting users:", error)
-    res.status(500).json({ message: "Erro interno do servidor" })
+    console.error("Error getting users:", error);
+    res.status(500).json({ message: "Erro interno do servidor", error: error.message });
   }
 })
 
@@ -1847,6 +1839,12 @@ app.post("/api/users/avatar", upload.single("file"), async (req, res) => {
 
     const userId = req.body.userId
     console.log(`Recebido upload de avatar para o usuário ${userId}:`, req.file);
+    
+    // Garantir que o diretório existe
+    if (!fs.existsSync(userAvatarsDir)) {
+      fs.mkdirSync(userAvatarsDir, { recursive: true });
+      console.log(`Diretório de avatares de usuários criado: ${userAvatarsDir}`);
+    }
 
     // Detectar o formato da imagem original
     const fileExtension = path.extname(req.file.originalname).toLowerCase();
@@ -1867,7 +1865,7 @@ app.post("/api/users/avatar", upload.single("file"), async (req, res) => {
 
     // Optimize image
     const timestamp = Date.now();
-    const optimizedFilename = `user-${userId}-${timestamp}${fileExtension}`; // Inclui userId no nome do arquivo
+    const optimizedFilename = `user-${userId}-${timestamp}.${outputFormat}`; // Inclui userId no nome do arquivo e usa a extensão correta
     const optimizedPath = path.join(userAvatarsDir, optimizedFilename); // Usar a pasta de avatares de usuários
 
     // Processa a imagem de acordo com o formato
@@ -1913,18 +1911,16 @@ app.post("/api/users/avatar", upload.single("file"), async (req, res) => {
     }
 
     res.json({
-      message: "Avatar enviado com sucesso",
+      message: "Avatar do usuário enviado com sucesso",
       url: fileUrl,
-      filename: optimizedFilename,
       format: outputFormat
-    })
+    });
   } catch (error) {
-    console.error("Error uploading avatar:", error)
+    console.error("Erro ao processar avatar do usuário:", error);
     res.status(500).json({ 
       message: "Erro interno do servidor",
-      error: error.message,
-      stack: error.stack
-    })
+      error: error.message
+    });
   }
 })
 
@@ -1932,16 +1928,16 @@ app.post("/api/users/avatar", upload.single("file"), async (req, res) => {
 app.post("/api/groups/avatar", upload.single("file"), async (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).json({ message: "Nenhum arquivo enviado" })
+      return res.status(400).json({ message: "Nenhum arquivo enviado" });
     }
 
-    const groupId = req.body.groupId
+    const groupId = req.body.groupId;
     console.log(`Recebido upload de avatar para o grupo ${groupId}:`, req.file);
-
-    // Verificar se o diretório de grupos existe
-    if (!fs.existsSync(groupsDir)) {
-      fs.mkdirSync(groupsDir, { recursive: true });
-      console.log(`Diretório de uploads de grupos criado: ${groupsDir}`);
+    
+    // Garantir que o diretório existe
+    if (!fs.existsSync(groupAvatarsDir)) {
+      fs.mkdirSync(groupAvatarsDir, { recursive: true });
+      console.log(`Diretório de avatares de grupos criado: ${groupAvatarsDir}`);
     }
 
     // Detectar o formato da imagem original
@@ -1963,8 +1959,9 @@ app.post("/api/groups/avatar", upload.single("file"), async (req, res) => {
 
     // Optimize image
     const timestamp = Date.now();
-    const optimizedFilename = `optimized-${timestamp}${fileExtension}`;
-    const optimizedPath = path.join(groupsDir, optimizedFilename);
+    // Incluir groupId no nome do arquivo para evitar conflitos
+    const optimizedFilename = `group-${groupId}-${timestamp}.${outputFormat}`;
+    const optimizedPath = path.join(groupAvatarsDir, optimizedFilename);
 
     // Processa a imagem de acordo com o formato
     let sharpInstance = sharp(req.file.path).resize(200, 200);
@@ -1991,68 +1988,156 @@ app.post("/api/groups/avatar", upload.single("file"), async (req, res) => {
       // Continua a execução mesmo se não conseguir excluir o arquivo original
     }
 
-    const fileUrl = `${req.protocol}://${req.get("host")}/uploads/groups/${optimizedFilename}`;
+    // Obter o host da requisição
+    const host = process.env.PUBLIC_HOST || req.get("host");
+    const protocol = process.env.NODE_ENV === "production" ? "https" : req.protocol;
+    
+    // Criar URL absoluta para o avatar
+    const fileUrl = `${protocol}://${host}/uploads/group_avatars/${optimizedFilename}`;
     console.log(`URL do avatar gerada: ${fileUrl}`);
+
+    // Se o id do grupo não for "temp", atualiza o avatar no banco de dados
+    if (groupId !== "temp") {
+      try {
+        await pool.execute("UPDATE chats SET avatar = ? WHERE id = ?", [fileUrl, groupId]);
+        console.log(`Avatar do grupo ${groupId} atualizado no banco de dados`);
+      } catch (dbError) {
+        console.error(`Erro ao atualizar avatar no banco de dados: ${dbError.message}`);
+        // Continua mesmo se houver erro no banco de dados, já que o URL ainda será retornado
+      }
+    }
 
     res.json({
       message: "Avatar do grupo enviado com sucesso",
       url: fileUrl,
-      filename: optimizedFilename,
       format: outputFormat
-    })
+    });
   } catch (error) {
-    console.error("Error uploading group avatar:", error)
+    console.error("Erro ao processar avatar do grupo:", error);
     res.status(500).json({ 
       message: "Erro interno do servidor",
-      error: error.message,
-      stack: error.stack
-    })
+      error: error.message
+    });
   }
-})
+});
 
 // Upload file
-app.post("/api/upload/file", upload.single("file"), (req, res) => {
+app.post("/api/upload/file", upload.single("file"), async (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).json({ message: "Nenhum arquivo enviado" })
+      return res.status(400).json({ 
+        success: false, 
+        message: "Nenhum arquivo enviado" 
+      });
     }
-
-    const fileUrl = `${req.protocol}://${req.get("host")}/uploads/files/${req.file.filename}`
-
+    
+    console.log("Recebido upload de arquivo:", req.file);
+    
+    // Verifica se a pasta de arquivos existe
+    if (!fs.existsSync(filesDir)) {
+      fs.mkdirSync(filesDir, { recursive: true });
+      console.log(`Diretório de arquivos criado: ${filesDir}`);
+    }
+    
+    // Gera um nome único para o arquivo
+    const timestamp = Date.now();
+    const fileExtension = path.extname(req.file.originalname);
+    const safeFileName = req.file.originalname
+      .replace(/[^a-zA-Z0-9-_.]/g, '_')
+      .substring(0, 100); // limitar tamanho do nome
+    
+    const uniqueFileName = `file-${timestamp}-${safeFileName}`;
+    const filePath = path.join(filesDir, uniqueFileName);
+    
+    // Copia o arquivo recebido
+    fs.copyFileSync(req.file.path, filePath);
+    console.log(`Arquivo copiado para: ${filePath}`);
+    
+    // Remove arquivo temporário
+    try {
+      fs.unlinkSync(req.file.path);
+    } catch (unlinkError) {
+      console.log(`Aviso: Não foi possível excluir o arquivo temporário: ${unlinkError.message}`);
+    }
+    
+    // Gerar URL absoluta
+    const host = process.env.PUBLIC_HOST || req.get("host");
+    const protocol = process.env.NODE_ENV === "production" ? "https" : req.protocol;
+    const fileUrl = `${protocol}://${host}/uploads/files/${uniqueFileName}`;
+    
+    console.log(`URL do arquivo gerada: ${fileUrl}`);
+    
     res.json({
+      success: true,
       message: "Arquivo enviado com sucesso",
       url: fileUrl,
-      filename: req.file.filename,
-    })
+      fileName: req.file.originalname,
+      fileType: req.file.mimetype,
+      fileSize: req.file.size
+    });
   } catch (error) {
-    console.error("Error uploading file:", error)
-    res.status(500).json({ message: "Erro interno do servidor" })
+    console.error("Erro ao processar arquivo:", error);
+    res.status(500).json({ 
+      success: false,
+      message: "Erro ao processar o arquivo",
+      error: error.message 
+    });
   }
-})
+});
 
 // Upload audio
 app.post("/api/upload/audio", upload.single("audio"), async (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).json({ message: "Nenhum arquivo de áudio enviado" })
+      return res.status(400).json({ message: "Nenhum arquivo enviado" });
     }
-
-    console.log("Recebendo upload de áudio:", req.file);
-
-    const fileUrl = `${req.protocol}://${req.get("host")}/uploads/audio/${req.file.filename}`
-
-    console.log("URL do áudio gerada:", fileUrl);
-
+    
+    console.log("Recebido upload de áudio:", req.file);
+    
+    // Verifica se a pasta de áudios existe
+    if (!fs.existsSync(audioDir)) {
+      fs.mkdirSync(audioDir, { recursive: true });
+      console.log(`Diretório de áudios criado: ${audioDir}`);
+    }
+    
+    // Gera um nome único para o arquivo
+    const timestamp = Date.now();
+    const audioFileName = `audio-${timestamp}.mp3`;
+    const audioPath = path.join(audioDir, audioFileName);
+    
+    // Copia o arquivo recebido
+    fs.copyFileSync(req.file.path, audioPath);
+    console.log(`Áudio copiado para: ${audioPath}`);
+    
+    // Remove arquivo temporário
+    try {
+      fs.unlinkSync(req.file.path);
+    } catch (unlinkError) {
+      console.log(`Aviso: Não foi possível excluir o arquivo temporário: ${unlinkError.message}`);
+    }
+    
+    // Gerar URL absoluta
+    const host = process.env.PUBLIC_HOST || req.get("host");
+    const protocol = process.env.NODE_ENV === "production" ? "https" : req.protocol;
+    const audioUrl = `${protocol}://${host}/uploads/audio/${audioFileName}`;
+    
+    console.log(`URL do áudio gerada: ${audioUrl}`);
+    
     res.json({
+      success: true,
       message: "Áudio enviado com sucesso",
-      audioUrl: fileUrl,
-      filename: req.file.filename,
-    })
+      audioUrl,
+      fileName: audioFileName
+    });
   } catch (error) {
-    console.error("Erro ao fazer upload do áudio:", error)
-    res.status(500).json({ message: "Erro interno do servidor" })
+    console.error("Erro ao processar áudio:", error);
+    res.status(500).json({ 
+      success: false,
+      message: "Erro ao processar o arquivo de áudio",
+      error: error.message 
+    });
   }
-})
+});
 
 // Get tags
 app.get("/api/tags", authenticateJWT, async (req, res) => {
@@ -2667,6 +2752,431 @@ app.delete("/api/chats/:chatId/members/:userId", async (req, res) => {
       error: "Erro ao remover participante", 
       details: error.message,
       code: "SERVER_ERROR"
+    });
+  }
+});
+
+// API para criar enquetes
+app.post("/api/polls", authenticateJWT, async (req, res) => {
+  try {
+    const { question, options, chatId, expiresAt } = req.body;
+    const creatorId = req.user.id;
+    
+    if (!question || !options || !chatId) {
+      return res.status(400).json({ 
+        message: "Pergunta, opções e ID do chat são obrigatórios"
+      });
+    }
+    
+    if (!Array.isArray(options) || options.length < 2) {
+      return res.status(400).json({ 
+        message: "A enquete precisa ter pelo menos 2 opções"
+      });
+    }
+
+    // Verificar se o chat existe e o usuário é participante
+    const [chats] = await pool.execute(
+      "SELECT is_group FROM chats WHERE id = ?",
+      [chatId]
+    );
+    
+    if (chats.length === 0) {
+      return res.status(404).json({ message: "Chat não encontrado" });
+    }
+    
+    if (!chats[0].is_group) {
+      return res.status(400).json({ 
+        message: "Enquetes só podem ser criadas em grupos"
+      });
+    }
+    
+    const [participants] = await pool.execute(
+      "SELECT * FROM chat_participants WHERE chat_id = ? AND user_id = ?",
+      [chatId, creatorId]
+    );
+    
+    if (participants.length === 0) {
+      return res.status(403).json({ 
+        message: "Você não é participante deste grupo"
+      });
+    }
+    
+    // Iniciar transação
+    const connection = await pool.getConnection();
+    await connection.beginTransaction();
+    
+    try {
+      const pollId = uuid();
+      
+      // Criar a enquete
+      await connection.execute(
+        `INSERT INTO polls (id, chat_id, creator_id, question, expires_at) 
+         VALUES (?, ?, ?, ?, ?)`,
+        [pollId, chatId, creatorId, question, expiresAt || null]
+      );
+      
+      // Criar as opções da enquete
+      const optionValues = [];
+      const optionPlaceholders = [];
+      const optionIds = [];
+      
+      for (const option of options) {
+        const optionId = uuid();
+        optionIds.push(optionId);
+        optionValues.push(optionId, pollId, option.text);
+        optionPlaceholders.push("(?, ?, ?)");
+      }
+      
+      await connection.execute(
+        `INSERT INTO poll_options (id, poll_id, text) VALUES ${optionPlaceholders.join(", ")}`,
+        optionValues
+      );
+      
+      await connection.commit();
+      
+      // Obter os dados completos da enquete
+      const [polls] = await pool.execute(
+        `SELECT p.id, p.chat_id, p.creator_id, u.name as creator_name, 
+                p.question, p.created_at, p.expires_at
+         FROM polls p
+         JOIN users u ON p.creator_id = u.id
+         WHERE p.id = ?`,
+        [pollId]
+      );
+      
+      const [pollOptions] = await pool.execute(
+        "SELECT id, text FROM poll_options WHERE poll_id = ?",
+        [pollId]
+      );
+      
+      const poll = {
+        ...polls[0],
+        options: pollOptions,
+        votes: []
+      };
+      
+      // Enviar a nova enquete por socket para todos os participantes do grupo
+      io.to(`chat:${chatId}`).emit("poll:new", poll);
+      
+      // Criar uma mensagem especial para a enquete
+      const messageId = uuid();
+      const additionalData = JSON.stringify({ pollId });
+      
+      await pool.execute(
+        `INSERT INTO messages (id, chat_id, sender_id, content, type, additional_data) 
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [messageId, chatId, creatorId, question, "poll", additionalData]
+      );
+      
+      // Obter os dados do remetente para a mensagem
+      const [senders] = await pool.execute(
+        "SELECT id, name, avatar FROM users WHERE id = ?",
+        [creatorId]
+      );
+      
+      // Formatar a mensagem para enviar pelo socket
+      const message = {
+        id: messageId,
+        chatId,
+        senderId: creatorId,
+        sender: senders[0],
+        content: question,
+        type: "poll",
+        timestamp: new Date().toISOString(),
+        poll: poll
+      };
+      
+      // Notificar todos os participantes sobre a nova mensagem
+      io.to(`chat:${chatId}`).emit("message:new", message);
+      
+      res.status(201).json(poll);
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error("Error creating poll:", error);
+    res.status(500).json({ message: "Erro interno do servidor" });
+  }
+});
+
+// API para votar em uma enquete
+app.post("/api/polls/:pollId/vote", authenticateJWT, async (req, res) => {
+  try {
+    const { pollId } = req.params;
+    const { optionId } = req.body;
+    const userId = req.user.id;
+    
+    if (!optionId) {
+      return res.status(400).json({ message: "ID da opção é obrigatório" });
+    }
+    
+    // Verificar se a enquete existe
+    const [polls] = await pool.execute(
+      `SELECT p.id, p.chat_id, p.creator_id, p.question, p.created_at, p.expires_at 
+       FROM polls p WHERE p.id = ?`,
+      [pollId]
+    );
+    
+    if (polls.length === 0) {
+      return res.status(404).json({ message: "Enquete não encontrada" });
+    }
+    
+    const poll = polls[0];
+    
+    // Verificar se o usuário é participante do chat
+    const [participants] = await pool.execute(
+      "SELECT * FROM chat_participants WHERE chat_id = ? AND user_id = ?",
+      [poll.chat_id, userId]
+    );
+    
+    if (participants.length === 0) {
+      return res.status(403).json({ 
+        message: "Você não tem permissão para votar nesta enquete"
+      });
+    }
+    
+    // Verificar se a opção existe e pertence à enquete
+    const [options] = await pool.execute(
+      "SELECT * FROM poll_options WHERE id = ? AND poll_id = ?",
+      [optionId, pollId]
+    );
+    
+    if (options.length === 0) {
+      return res.status(404).json({ message: "Opção não encontrada" });
+    }
+    
+    // Iniciar transação
+    const connection = await pool.getConnection();
+    await connection.beginTransaction();
+    
+    try {
+      // Verificar se o usuário já votou nesta enquete
+      const [existingVotes] = await connection.execute(
+        "SELECT * FROM poll_votes WHERE poll_id = ? AND user_id = ?",
+        [pollId, userId]
+      );
+      
+      // Se já votou, atualiza o voto
+      if (existingVotes.length > 0) {
+        await connection.execute(
+          "UPDATE poll_votes SET option_id = ? WHERE poll_id = ? AND user_id = ?",
+          [optionId, pollId, userId]
+        );
+      } else {
+        // Se não votou, cria um novo voto
+        const voteId = uuid();
+        await connection.execute(
+          "INSERT INTO poll_votes (id, poll_id, option_id, user_id) VALUES (?, ?, ?, ?)",
+          [voteId, pollId, optionId, userId]
+        );
+      }
+      
+      await connection.commit();
+      
+      // Obter todos os dados da enquete para retornar ao cliente
+      const [updatedPoll] = await pool.execute(
+        `SELECT p.id, p.chat_id, p.creator_id, u.name as creator_name, 
+                p.question, p.created_at, p.expires_at
+         FROM polls p
+         JOIN users u ON p.creator_id = u.id
+         WHERE p.id = ?`,
+        [pollId]
+      );
+      
+      const [pollOptions] = await pool.execute(
+        "SELECT id, text FROM poll_options WHERE poll_id = ?",
+        [pollId]
+      );
+      
+      const [votes] = await pool.execute(
+        `SELECT pv.id, pv.option_id, pv.user_id, u.name as user_name, pv.created_at
+         FROM poll_votes pv
+         JOIN users u ON pv.user_id = u.id
+         WHERE pv.poll_id = ?`,
+        [pollId]
+      );
+      
+      const result = {
+        ...updatedPoll[0],
+        options: pollOptions,
+        votes: votes
+      };
+      
+      // Notificar todos os participantes sobre a atualização da enquete
+      io.to(`chat:${poll.chat_id}`).emit("poll:updated", result);
+      
+      res.json(result);
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error("Error voting on poll:", error);
+    res.status(500).json({ message: "Erro interno do servidor" });
+  }
+});
+
+// Endpoint para criar uma enquete
+app.post("/api/messages/poll", authenticateJWT, async (req, res) => {
+  try {
+    const { chatId, senderId, question, options } = req.body;
+    
+    if (!chatId || !senderId || !question || !options || !Array.isArray(options) || options.length < 2) {
+      return res.status(400).json({ 
+        success: false,
+        message: "Dados inválidos para criar uma enquete. A enquete precisa de um título e pelo menos 2 opções."
+      });
+    }
+    
+    console.log(`Criando enquete para o chat ${chatId} por ${senderId}: "${question}" com ${options.length} opções`);
+    
+    // Verificar se o chat existe
+    const [chatResults] = await pool.execute(
+      "SELECT * FROM chats WHERE id = ?",
+      [chatId]
+    );
+    
+    if (chatResults.length === 0) {
+      return res.status(404).json({ 
+        success: false,
+        message: "Chat não encontrado" 
+      });
+    }
+    
+    // Verificar se o usuário é membro do chat
+    const [memberResults] = await pool.execute(
+      "SELECT * FROM chat_participants WHERE chat_id = ? AND user_id = ?",
+      [chatId, senderId]
+    );
+    
+    if (memberResults.length === 0) {
+      return res.status(403).json({ 
+        success: false,
+        message: "Você não tem permissão para criar enquetes neste chat" 
+      });
+    }
+    
+    // Iniciar uma transação para garantir que tudo seja salvo corretamente
+    const connection = await pool.getConnection();
+    await connection.beginTransaction();
+    
+    try {
+      // Criar a enquete
+      const [pollResult] = await connection.execute(
+        "INSERT INTO polls (chat_id, creator_id, question, created_at) VALUES (?, ?, ?, NOW())",
+        [chatId, senderId, question]
+      );
+      
+      const pollId = pollResult.insertId;
+      
+      // Adicionar as opções da enquete
+      for (const option of options) {
+        await connection.execute(
+          "INSERT INTO poll_options (poll_id, text) VALUES (?, ?)",
+          [pollId, option]
+        );
+      }
+      
+      // Finalizar a transação
+      await connection.commit();
+      connection.release();
+      
+      res.json({
+        success: true,
+        message: "Enquete criada com sucesso",
+        pollId: pollId
+      });
+      
+    } catch (error) {
+      // Reverter a transação em caso de erro
+      await connection.rollback();
+      connection.release();
+      throw error;
+    }
+    
+  } catch (error) {
+    console.error("Erro ao criar enquete:", error);
+    res.status(500).json({ 
+      success: false,
+      message: "Erro ao criar enquete", 
+      error: error.message 
+    });
+  }
+});
+
+// Endpoint para votar em uma enquete
+app.post("/api/polls/vote", authenticateJWT, async (req, res) => {
+  try {
+    const { pollId, optionId, userId } = req.body;
+    
+    if (!pollId || !optionId || !userId) {
+      return res.status(400).json({ 
+        success: false,
+        message: "Dados inválidos para registrar voto" 
+      });
+    }
+    
+    // Verificar se a enquete existe
+    const [pollResults] = await pool.execute(
+      "SELECT * FROM polls WHERE id = ?",
+      [pollId]
+    );
+    
+    if (pollResults.length === 0) {
+      return res.status(404).json({ 
+        success: false,
+        message: "Enquete não encontrada" 
+      });
+    }
+    
+    // Verificar se o usuário já votou nesta enquete
+    const [existingVotes] = await pool.execute(
+      "SELECT * FROM poll_votes WHERE poll_id = ? AND user_id = ?",
+      [pollId, userId]
+    );
+    
+    if (existingVotes.length > 0) {
+      return res.status(400).json({ 
+        success: false,
+        message: "Você já votou nesta enquete" 
+      });
+    }
+    
+    // Verificar se a opção pertence a esta enquete
+    const [optionResults] = await pool.execute(
+      "SELECT * FROM poll_options WHERE id = ? AND poll_id = ?",
+      [optionId, pollId]
+    );
+    
+    if (optionResults.length === 0) {
+      return res.status(404).json({ 
+        success: false,
+        message: "Opção de voto inválida" 
+      });
+    }
+    
+    // Registrar o voto
+    await pool.execute(
+      "INSERT INTO poll_votes (poll_id, option_id, user_id, voted_at) VALUES (?, ?, ?, NOW())",
+      [pollId, optionId, userId]
+    );
+    
+    res.json({
+      success: true,
+      message: "Voto registrado com sucesso"
+    });
+    
+  } catch (error) {
+    console.error("Erro ao registrar voto:", error);
+    res.status(500).json({ 
+      success: false,
+      message: "Erro ao registrar voto", 
+      error: error.message 
     });
   }
 });

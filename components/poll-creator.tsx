@@ -2,100 +2,158 @@
 
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { PlusCircle, Trash2, BarChart2 } from "lucide-react"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import { Plus, Trash2, CircleX } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+
+interface PollOption {
+  id: string
+  text: string
+}
 
 interface PollCreatorProps {
   chatId: string
-  userId: string
   onClose: () => void
-  onPollCreate: (pollData: any) => void
+  onPollCreated: (poll: Poll) => void
 }
 
-export default function PollCreator({ chatId, userId, onClose, onPollCreate }: PollCreatorProps) {
+interface Poll {
+  question: string
+  options: PollOption[]
+  chatId: string
+  expiresAt?: Date
+}
+
+export default function PollCreator({ chatId, onClose, onPollCreated }: PollCreatorProps) {
   const [question, setQuestion] = useState("")
-  const [options, setOptions] = useState(["", ""])
+  const [options, setOptions] = useState<PollOption[]>([
+    { id: "1", text: "" },
+    { id: "2", text: "" },
+  ])
   const [isCreating, setIsCreating] = useState(false)
   const { toast } = useToast()
 
-  const handleAddOption = () => {
-    if (options.length >= 10) {
+  const addOption = () => {
+    if (options.length >= 12) {
       toast({
-        title: "Limite atingido",
-        description: "Você pode adicionar no máximo 10 opções",
-        variant: "destructive",
+        title: "Limite excedido",
+        description: "Uma enquete pode ter no máximo 12 opções",
+        variant: "destructive"
       })
       return
     }
-
-    setOptions([...options, ""])
+    
+    const newId = (options.length + 1).toString()
+    setOptions([...options, { id: newId, text: "" }])
   }
 
-  const handleRemoveOption = (index: number) => {
+  const removeOption = (idToRemove: string) => {
     if (options.length <= 2) {
       toast({
         title: "Mínimo de opções",
-        description: "Uma enquete precisa ter pelo menos 2 opções",
-        variant: "destructive",
+        description: "Uma enquete deve ter pelo menos 2 opções",
+        variant: "destructive"
       })
       return
     }
-
-    const newOptions = [...options]
-    newOptions.splice(index, 1)
-    setOptions(newOptions)
+    
+    setOptions(options.filter(option => option.id !== idToRemove))
   }
 
-  const handleOptionChange = (index: number, value: string) => {
-    const newOptions = [...options]
-    newOptions[index] = value
-    setOptions(newOptions)
+  const updateOption = (id: string, newText: string) => {
+    setOptions(
+      options.map(option => 
+        option.id === id ? { ...option, text: newText } : option
+      )
+    )
   }
 
-  const handleCreatePoll = () => {
-    // Validate inputs
+  const handleCreatePoll = async () => {
+    // Validar campos
     if (!question.trim()) {
       toast({
-        title: "Pergunta obrigatória",
-        description: "Por favor, insira uma pergunta para a enquete",
-        variant: "destructive",
+        title: "Campo obrigatório",
+        description: "Por favor, digite uma pergunta para a enquete",
+        variant: "destructive"
       })
       return
     }
 
-    const validOptions = options.filter((option) => option.trim() !== "")
-    if (validOptions.length < 2) {
+    // Verificar se todas as opções têm texto
+    const emptyOptions = options.filter(option => !option.text.trim())
+    if (emptyOptions.length > 0) {
       toast({
-        title: "Opções insuficientes",
-        description: "Por favor, insira pelo menos 2 opções válidas",
-        variant: "destructive",
+        title: "Campos vazios",
+        description: `${emptyOptions.length} opções estão vazias. Preencha todas as opções ou remova as desnecessárias.`,
+        variant: "destructive"
       })
       return
     }
 
-    setIsCreating(true)
-
-    // Create poll data
-    const pollData = {
-      chatId,
-      senderId: userId,
-      question,
-      options: validOptions.map((text, index) => ({
-        id: `option-${index}`,
-        text,
-        votes: 0,
-      })),
-      totalVotes: 0,
+    // Verificar se há opções duplicadas
+    const optionTexts = options.map(opt => opt.text.trim())
+    const uniqueTexts = new Set(optionTexts)
+    if (uniqueTexts.size !== optionTexts.length) {
+      toast({
+        title: "Opções duplicadas",
+        description: "Existem opções com o mesmo texto. Todas as opções devem ser únicas.",
+        variant: "destructive"
+      })
+      return
     }
 
-    // Call the onPollCreate callback
-    onPollCreate(pollData)
-
-    // Close the dialog
-    onClose()
+    try {
+      setIsCreating(true)
+      
+      const poll: Poll = {
+        question: question.trim(),
+        options: options.map(opt => ({ id: opt.id, text: opt.text.trim() })),
+        chatId
+      }
+      
+      // Enviar para o backend
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/polls`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${localStorage.getItem("token")}`,
+        },
+        body: JSON.stringify(poll),
+      })
+      
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.message || "Falha ao criar enquete")
+      }
+      
+      const createdPoll = await response.json()
+      
+      toast({
+        title: "Enquete criada",
+        description: "Sua enquete foi criada com sucesso!",
+      })
+      
+      onPollCreated(createdPoll)
+      onClose()
+    } catch (error) {
+      console.error("Erro ao criar enquete:", error)
+      toast({
+        title: "Erro",
+        description: error instanceof Error ? error.message : "Falha ao criar enquete",
+        variant: "destructive",
+      })
+    } finally {
+      setIsCreating(false)
+    }
   }
 
   return (
@@ -104,49 +162,71 @@ export default function PollCreator({ chatId, userId, onClose, onPollCreate }: P
         <DialogHeader>
           <DialogTitle>Criar Enquete</DialogTitle>
         </DialogHeader>
-
-        <div className="space-y-4">
+        
+        <div className="space-y-4 py-2">
           <div className="space-y-2">
             <Label htmlFor="question">Pergunta</Label>
             <Input
               id="question"
+              placeholder="Digite sua pergunta..."
               value={question}
               onChange={(e) => setQuestion(e.target.value)}
-              placeholder="Digite sua pergunta..."
             />
           </div>
-
+          
           <div className="space-y-2">
-            <Label>Opções</Label>
-            <div className="space-y-2">
-              {options.map((option, index) => (
-                <div key={index} className="flex items-center space-x-2">
-                  <Input
-                    value={option}
-                    onChange={(e) => handleOptionChange(index, e.target.value)}
-                    placeholder={`Opção ${index + 1}`}
-                  />
-                  <Button variant="ghost" size="icon" onClick={() => handleRemoveOption(index)}>
-                    <Trash2 className="h-4 w-4 text-destructive" />
-                  </Button>
-                </div>
-              ))}
-
-              <Button variant="outline" size="sm" className="w-full mt-2" onClick={handleAddOption}>
-                <PlusCircle className="h-4 w-4 mr-2" />
-                Adicionar Opção
-              </Button>
+            <div className="flex items-center justify-between">
+              <Label>Opções</Label>
+              <span className="text-xs text-muted-foreground">{options.length}/12 opções</span>
             </div>
+            
+            <ScrollArea className="max-h-[200px] pr-4">
+              <div className="space-y-2">
+                {options.map((option) => (
+                  <div key={option.id} className="flex items-center space-x-2">
+                    <Input
+                      placeholder={`Opção ${option.id}...`}
+                      value={option.text}
+                      onChange={(e) => updateOption(option.id, e.target.value)}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => removeOption(option.id)}
+                      disabled={options.length <= 2}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </ScrollArea>
+            
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="w-full mt-2"
+              onClick={addOption}
+              disabled={options.length >= 12}
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Adicionar opção
+            </Button>
           </div>
         </div>
-
+        
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
+          <Button variant="outline" type="button" onClick={onClose}>
             Cancelar
           </Button>
-          <Button onClick={handleCreatePoll} disabled={isCreating}>
-            <BarChart2 className="h-4 w-4 mr-2" />
-            Criar Enquete
+          <Button 
+            type="button" 
+            onClick={handleCreatePoll}
+            disabled={isCreating}
+          >
+            {isCreating ? "Criando..." : "Criar Enquete"}
           </Button>
         </DialogFooter>
       </DialogContent>

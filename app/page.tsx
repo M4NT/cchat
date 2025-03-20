@@ -33,6 +33,8 @@ import {
   Menu,
   ChevronLeft,
   FileAudio,
+  Check,
+  UserMinus,
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import ChatMessage from "@/components/chat-message"
@@ -67,6 +69,7 @@ import CreatePoll from "@/components/create-poll"
 import FilePreview from "@/components/file-preview"
 // Importar o componente VersionsDialog
 import { VersionsDialog } from "@/components/versions-dialog"
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
 
 interface User {
   id: string
@@ -158,6 +161,18 @@ export default function ChatApp() {
   const [archivedChats, setArchivedChats] = useState<any[]>([])
   const [unreadMessages, setUnreadMessages] = useState<Record<string, number>>({})
   const messageInputRef = useRef<HTMLInputElement>(null)
+  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false)
+  const [confirmAction, setConfirmAction] = useState<{
+    type: 'leaveGroup' | 'deleteChat' | 'deleteChatPermanent' | 'removeParticipant'
+    itemId: string
+    title: string
+    description: string
+    onConfirm: () => void
+    participantId?: string
+    participantName?: string
+  } | null>(null)
+  const [groupSettingsOpen, setGroupSettingsOpen] = useState(false)
+  const [currentGroup, setCurrentGroup] = useState<Chat | null>(null)
   
   // Detect mobile on initial load
   useEffect(() => {
@@ -557,6 +572,73 @@ export default function ChatApp() {
       });
     })
 
+    socket.on("user:status", ({ userId, isOnline }) => {
+      setChats((prev) =>
+        prev.map((chat) => {
+          if (!chat.is_group) {
+            const participant = chat.participants?.find((p: any) => p.id === userId)
+            if (participant) {
+              participant.is_online = isOnline
+              return { ...chat }
+            }
+          }
+          return chat
+        }),
+      )
+    })
+
+    socket.on("user:updated", (updatedUser) => {
+      console.log("Usuário atualizado recebido:", updatedUser);
+      
+      // Atualizar o usuário logado se for ele mesmo
+      if (user && updatedUser.id === user.id) {
+        console.log("Atualizando usuário logado");
+        setUser((prevUser: typeof user) => ({
+          ...prevUser,
+          name: updatedUser.name,
+          email: updatedUser.email,
+          avatar: updatedUser.avatar
+        }));
+        
+        // Atualizar no localStorage para persistir alterações
+        const storedUser = JSON.parse(localStorage.getItem("chatUser") || "{}")
+        localStorage.setItem("chatUser", JSON.stringify({
+          ...storedUser,
+          name: updatedUser.name,
+          email: updatedUser.email,
+          avatar: updatedUser.avatar
+        }));
+      }
+      
+      // Atualizar nas conversas
+      setChats(prev => 
+        prev.map(chat => {
+          // Atualizar participantes nos chats
+          if (chat.participants && Array.isArray(chat.participants)) {
+            const updatedParticipants = chat.participants.map((p: any) => 
+              p.id === updatedUser.id ? { ...p, ...updatedUser } : p
+            );
+            return { ...chat, participants: updatedParticipants };
+          }
+          return chat;
+        })
+      );
+      
+      // Atualizar nas mensagens
+      setMessages(prev => 
+        prev.map(message => {
+          if (message.sender_id === updatedUser.id) {
+            return { 
+              ...message, 
+              sender_name: updatedUser.name,
+              sender_avatar: updatedUser.avatar
+            };
+          }
+          return message;
+        })
+      );
+    });
+
     return () => {
       socket.off("connect")
       socket.off("message:new")
@@ -935,7 +1017,20 @@ export default function ChatApp() {
     }
 
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/messages/poll`, {
+      // Verificar se temos os dados necessários
+      if (!pollData.question || !pollData.options || pollData.options.length < 2) {
+        throw new Error("A enquete precisa de uma pergunta e pelo menos 2 opções")
+      }
+      
+      const apiUrl = `${process.env.NEXT_PUBLIC_API_URL}/api/messages/poll`
+      console.log("Enviando enquete para:", apiUrl, {
+        chatId: String(activeChat.id),
+        senderId: String(user.id),
+        question: pollData.question,
+        options: pollData.options
+      })
+      
+      const response = await fetch(apiUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -950,10 +1045,32 @@ export default function ChatApp() {
       })
 
       if (!response.ok) {
-        throw new Error("Falha ao criar enquete")
+        const errorData = await response.text()
+        let errorMessage = "Falha ao criar enquete"
+        
+        try {
+          // Tentar analisar a resposta como JSON
+          const parsedError = JSON.parse(errorData)
+          errorMessage = parsedError.message || parsedError.error || errorMessage
+        } catch (e) {
+          // Se não conseguir analisar como JSON, usar o texto bruto se disponível
+          if (errorData) errorMessage = errorData
+        }
+        
+        console.error("Erro ao criar enquete:", {
+          status: response.status,
+          statusText: response.statusText,
+          data: errorData
+        })
+        
+        throw new Error(errorMessage)
       }
 
       const data = await response.json()
+      
+      if (!data.pollId) {
+        throw new Error("Resposta inválida do servidor ao criar enquete")
+      }
       
       socket.emit("message:send", {
         chatId: String(activeChat.id),
@@ -976,10 +1093,10 @@ export default function ChatApp() {
         description: "A enquete foi criada com sucesso!"
       })
     } catch (error) {
-      console.error("Error creating poll:", error)
+      console.error("Erro ao criar enquete:", error)
       toast({
         title: "Erro",
-        description: "Ocorreu um erro ao criar a enquete",
+        description: error instanceof Error ? error.message : "Ocorreu um erro ao criar a enquete",
         variant: "destructive",
       })
     }
@@ -1029,29 +1146,52 @@ export default function ChatApp() {
   }
 
   const handleDeleteChat = (chatId: string) => {
-    if (socket) {
-      socket.emit("chat:delete", chatId)
-      if (activeChat?.id === chatId) {
-        setActiveChat(null)
-        setMessages([])
+    // Em vez de executar diretamente, abrimos o modal de confirmação
+    setConfirmAction({
+      type: 'deleteChat',
+      itemId: chatId,
+      title: "Excluir conversa",
+      description: "Essa ação excluirá permanentemente todas as mensagens, mídias e arquivos compartilhados nesta conversa. Você não poderá recuperá-los depois.",
+      onConfirm: () => {
+        if (socket) {
+          socket.emit("chat:delete", chatId)
+          if (activeChat?.id === chatId) {
+            setActiveChat(null)
+            setMessages([])
+          }
+          
+          toast({
+            title: "Conversa excluída",
+            description: "A conversa foi excluída com sucesso",
+          })
+        }
       }
-    }
+    })
+    setConfirmDialogOpen(true)
   }
 
   const handleLeaveGroup = (groupId: string) => {
-    if (socket && user) {
-      toast({
-        title: "Saindo do grupo...",
-        description: "Aguarde enquanto processamos sua solicitação"
-      })
-      
-      socket.emit("chat:leave", {
-        chatId: groupId,
-        userId: user.id
-      })
-      
-      // Removemos a atualização local do estado, vamos esperar a confirmação do servidor via evento "chat:left"
-    }
+    // Em vez de executar diretamente, abrimos o modal de confirmação
+    setConfirmAction({
+      type: 'leaveGroup',
+      itemId: groupId,
+      title: "Sair do grupo",
+      description: "Ao sair do grupo, você perderá acesso a todas as mensagens, mídias, arquivos e contatos compartilhados. Esta ação não pode ser desfeita.",
+      onConfirm: () => {
+        if (socket && user) {
+          toast({
+            title: "Saindo do grupo...",
+            description: "Aguarde enquanto processamos sua solicitação"
+          })
+          
+          socket.emit("chat:leave", {
+            chatId: groupId,
+            userId: user.id
+          })
+        }
+      }
+    })
+    setConfirmDialogOpen(true)
   }
 
   const handleDeleteMessage = (messageId: string) => {
@@ -1324,6 +1464,114 @@ export default function ChatApp() {
     // Caso contrário, mostra a data completa
     return messageDate.toLocaleDateString() + ' ' + 
            messageDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+
+  const handleRemoveParticipant = (groupId: string, participantId: string, participantName: string) => {
+    // Abrimos o modal de confirmação em vez de executar diretamente
+    setConfirmAction({
+      type: 'removeParticipant',
+      itemId: groupId,
+      participantId: participantId,
+      participantName: participantName,
+      title: "Remover participante",
+      description: `Você está prestes a remover ${participantName} do grupo. Esta pessoa perderá o acesso a todas as mensagens futuras e não poderá retornar a menos que seja adicionada novamente.`,
+      onConfirm: async () => {
+        if (!user) return
+        
+        toast({
+          title: "Removendo participante...",
+          description: "Aguarde enquanto processamos sua solicitação"
+        })
+        
+        try {
+          const response = await fetch(
+            `${process.env.NEXT_PUBLIC_API_URL}/api/chats/${groupId}/members/${participantId}`,
+            {
+              method: "DELETE",
+              headers: {
+                Authorization: `Bearer ${localStorage.getItem("token")}`,
+              },
+            }
+          )
+
+          if (!response.ok) {
+            const errorData = await response.json()
+            throw new Error(errorData.error || "Falha ao remover participante")
+          }
+
+          toast({
+            title: "Participante removido",
+            description: `${participantName} foi removido do grupo com sucesso`,
+          })
+          
+          // A atualização dos dados do grupo acontecerá via socket
+        } catch (error) {
+          console.error("Erro ao remover participante:", error)
+          toast({
+            title: "Erro",
+            description: error instanceof Error ? error.message : "Falha ao remover participante",
+            variant: "destructive",
+          })
+        }
+      }
+    })
+    setConfirmDialogOpen(true)
+  }
+
+  // Abre o modal de configurações do grupo
+  const handleGroupSettingsOpen = (group: Chat) => {
+    setGroupSettingsOpen(true)
+    setCurrentGroup(group)
+  }
+
+  // Função para marcar chat como lido
+  const markAsRead = (chatId: number | string) => {
+    // Converter para string para garantir consistência
+    const chatIdStr = String(chatId);
+    
+    // Limpar contagem de mensagens não lidas
+    setUnreadMessages(prev => ({
+      ...prev,
+      [chatIdStr]: 0
+    }));
+    
+    toast({
+      title: "Chat marcado como lido",
+      description: "Todas as mensagens foram marcadas como lidas"
+    });
+  };
+
+  // Função para renderizar os itens do menu de dropdown para cada conversa
+  const renderMenuItems = (chat: Chat) => {
+    const isGroup = chat.is_group;
+    // Converter o ID para string para consistência
+    const chatId = String(chat.id);
+
+    return (
+      <>
+        {isGroup && isAdmin && (
+          <DropdownMenuItem onClick={() => handleGroupSettingsOpen(chat)}>
+            <Settings className="h-4 w-4 mr-2" />
+            Configurações do Grupo
+          </DropdownMenuItem>
+        )}
+        <DropdownMenuItem onClick={() => markAsRead(chatId)}>
+          <Check className="h-4 w-4 mr-2" />
+          Marcar como lido
+        </DropdownMenuItem>
+        {isGroup ? (
+          <DropdownMenuItem onClick={() => handleLeaveGroup(chatId)}>
+            <UserMinus className="h-4 w-4 mr-2" />
+            Sair do grupo
+          </DropdownMenuItem>
+        ) : (
+          <DropdownMenuItem onClick={() => handleDeleteChat(chatId)}>
+            <Trash2 className="h-4 w-4 mr-2" />
+            Excluir conversa
+          </DropdownMenuItem>
+        )}
+      </>
+    )
   }
 
   return (
@@ -1871,6 +2119,7 @@ export default function ChatApp() {
                     isOwnMessage={String(message.sender?.id) === String(user?.id)}
                   />
                 ))}
+                {/* Elemento invisível para o scroll automático */}
                 <div ref={messagesEndRef} />
               </div>
             </ScrollArea>
@@ -2059,15 +2308,15 @@ export default function ChatApp() {
           chatId={activeChat.id}
           senderId={user.id}
           onClose={() => setIsUploading(false)}
-          onUploadComplete={(fileData: any) => {
+          onUploadComplete={(fileData: any, fileType?: string, fileName?: string) => {
             if (socket && activeChat) {
               console.log("[DEBUG] Recebendo dados para envio:", fileData);
               
               // Verificar se está recebendo um objeto com dados completos (novo formato)
-              if (typeof fileData === 'object' && fileData.fileType) {
+              if (typeof fileData === 'object' && fileData.fileUrl) {
                 // Usar novo formato
                 const messageType = fileData.fileType === "link" ? "link" : 
-                                   fileData.fileType.startsWith("image/") ? "image" : "file";
+                                   fileData.fileType?.startsWith("image/") ? "image" : "file";
                 
                 console.log("[DEBUG] Usando novo formato para", messageType);
                 
@@ -2100,26 +2349,30 @@ export default function ChatApp() {
                     timestamp: new Date().toISOString(),
                     type: messageType,
                     fileName: fileData.fileName,
+                    fileType: fileData.fileType,
                     replyTo: replyingTo,
                   };
                   
                   socket.emit("message:send", messageData);
                 }
               } else {
-                // Formato antigo (para compatibilidade)
+                // Formato antigo (string direta)
                 const fileUrl = fileData;
-                const fileType = arguments[1];
-                const fileName = arguments[2];
+                // Garantir que temos valores válidos para fileType e fileName
+                const messageFileType = fileType || "application/octet-stream";
+                const messageFileName = fileName || "arquivo";
                 
                 // Determinar o tipo correto de mensagem
                 let messageType = "file";
                 
-                if (fileType.startsWith("image/")) {
+                if (messageFileType.startsWith("image/")) {
                   messageType = "image";
-                } else if (fileType === "link") {
+                } else if (messageFileType === "link") {
                   messageType = "link";
                   console.log("[DEBUG] Formato antigo, enviando link:", fileUrl.substring(0, 50) + "...");
                 }
+                
+                console.log("[DEBUG] Usando formato antigo para", messageType, "com tipo", messageFileType);
                 
                 const messageData = {
                   chatId: activeChat.id,
@@ -2127,7 +2380,8 @@ export default function ChatApp() {
                   content: fileUrl,
                   timestamp: new Date().toISOString(),
                   type: messageType,
-                  fileName,
+                  fileName: messageFileName,
+                  fileType: messageFileType,
                   replyTo: replyingTo,
                   ...(messageType === "link" ? { isLink: true } : {})
                 };
@@ -2369,6 +2623,56 @@ export default function ChatApp() {
               });
             }
           }}
+        />
+      )}
+      
+      {/* Modal de confirmação para ações irreversíveis */}
+      <AlertDialog open={confirmDialogOpen} onOpenChange={setConfirmDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{confirmAction?.title}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmAction?.description}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (confirmAction) {
+                  confirmAction.onConfirm();
+                }
+              }}
+              className={confirmAction?.type === 'leaveGroup' || confirmAction?.type === 'deleteChat' || confirmAction?.type === 'removeParticipant' 
+                ? "bg-destructive hover:bg-destructive/90" : ""}
+            >
+              Confirmar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      
+      {/* Modal de configurações do grupo */}
+      {groupSettingsOpen && currentGroup && (
+        <GroupSettings
+          group={currentGroup}
+          onClose={() => setGroupSettingsOpen(false)}
+          onGroupUpdate={(updatedGroup) => {
+            // Atualizar o grupo ativo se estiver visualizando ele
+            if (activeChat && activeChat.id === updatedGroup.id) {
+              setActiveChat(updatedGroup);
+            }
+            
+            // Atualizar na lista de chats
+            setChats((prevChats) => 
+              prevChats.map((chat) => 
+                chat.id === updatedGroup.id ? updatedGroup : chat
+              )
+            );
+          }}
+          onRemoveParticipant={(participantId, participantName) => 
+            handleRemoveParticipant(String(currentGroup.id), participantId, participantName)
+          }
         />
       )}
     </div>
