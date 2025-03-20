@@ -1380,6 +1380,7 @@ export default function ChatApp() {
     }
 
     try {
+      // Log para debug
       console.log("Tentando criar grupo:", groupData);
       
       // Verificar se temos o nome do grupo
@@ -1405,12 +1406,19 @@ export default function ChatApp() {
       // Extrair IDs dos participantes
       const participantIds = groupData.participants.map((p: any) => String(p.id));
       
+      // Verificar se temos avatar e garantir que seja uma URL válida
+      let avatarUrl = groupData.avatar;
+      if (avatarUrl && !avatarUrl.startsWith('http') && !avatarUrl.startsWith('/')) {
+        avatarUrl = `/${avatarUrl}`;
+      }
+      
       // Dados para criar o grupo
       const newGroupData = {
         isGroup: true,
         name: groupData.name.trim(),
         participants: participantIds,
-        createdBy: String(user.id)
+        createdBy: String(user.id),
+        avatar: avatarUrl // Incluir o avatar no objeto de criação do grupo
       };
       
       console.log("Enviando dados para criação de grupo:", newGroupData);
@@ -1573,6 +1581,63 @@ export default function ChatApp() {
       </>
     )
   }
+
+  // Função para rastrear mensagens não lidas e atualizar o título da página
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    
+    // Função para atualizar o título da página com contagem de mensagens não lidas
+    const updatePageTitle = () => {
+      const totalUnread = Object.values(unreadMessages).reduce((sum, count) => sum + count, 0);
+      
+      if (totalUnread > 0) {
+        document.title = `(${totalUnread}) CChat - Nova(s) mensagem(ns)`;
+      } else {
+        document.title = 'CChat - Conversa';
+      }
+    };
+    
+    // Atualizar título sempre que mudar a contagem de mensagens não lidas
+    updatePageTitle();
+    
+    // Restaurar título original quando o componente for desmontado
+    return () => {
+      document.title = 'CChat - Conversa';
+    };
+  }, [unreadMessages]);
+
+  // Atualizar contador de mensagens não lidas quando chegar nova mensagem
+  useEffect(() => {
+    if (!socket) return;
+    
+    const handleNewMessage = (message: any) => {
+      // Não incrementar contador se a mensagem for do próprio usuário
+      if (message.sender.id === user?.id) return;
+      
+      // Não incrementar se o chat já estiver ativo
+      if (activeChat && String(activeChat.id) === String(message.chatId)) return;
+      
+      // Incrementar contador para este chat
+      setUnreadMessages((prev) => ({
+        ...prev,
+        [String(message.chatId)]: (prev[String(message.chatId)] || 0) + 1
+      }));
+      
+      // Reproduzir som de notificação se estiver habilitado
+      if (notificationSound.current) {
+        notificationSound.current.currentTime = 0;
+        notificationSound.current.play().catch(err => 
+          console.error("Erro ao reproduzir som de notificação:", err)
+        );
+      }
+    };
+    
+    socket.on("message:new", handleNewMessage);
+    
+    return () => {
+      socket.off("message:new", handleNewMessage);
+    };
+  }, [socket, activeChat, user?.id]);
 
   return (
     <div className="flex h-screen bg-gray-50 dark:bg-gray-900" suppressHydrationWarning>
@@ -2581,12 +2646,19 @@ export default function ChatApp() {
                 // Extrair IDs dos participantes
                 const participantIds = groupData.participants.map((p: any) => String(p.id));
                 
+                // Verificar se temos avatar e garantir que seja uma URL válida
+                let avatarUrl = groupData.avatar;
+                if (avatarUrl && !avatarUrl.startsWith('http') && !avatarUrl.startsWith('/')) {
+                  avatarUrl = `/${avatarUrl}`;
+                }
+                
                 // Dados para criar o grupo
                 const newGroupData = {
                   isGroup: true,
                   name: groupData.name.trim(),
                   participants: participantIds,
-                  createdBy: String(user.id)
+                  createdBy: String(user.id),
+                  avatar: avatarUrl // Incluir o avatar no objeto de criação do grupo
                 };
                 
                 console.log("Enviando dados para criação de grupo:", newGroupData);

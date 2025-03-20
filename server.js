@@ -858,6 +858,8 @@ io.on("connection", (socket) => {
   // Create new chat or group
   socket.on("chat:create", async (chatData) => {
     try {
+      console.log("Recebido evento chat:create com dados:", chatData);
+      
       // Start a transaction
       const connection = await pool.getConnection()
       await connection.beginTransaction()
@@ -937,13 +939,32 @@ io.on("connection", (socket) => {
         }
 
         // Se não existe chat ou é um grupo, cria um novo
+        // Verificar se temos um avatar para o grupo
+        let avatarUrl = null;
+        if (chatData.isGroup && chatData.avatar) {
+          // Processar a URL do avatar
+          // Garantir que a URL do avatar seja absoluta
+          if (chatData.avatar && !chatData.avatar.startsWith('http')) {
+            const host = process.env.PUBLIC_HOST || 'localhost:3001';
+            const protocol = process.env.NODE_ENV === "production" ? "https" : "http";
+            avatarUrl = `${protocol}://${host}${chatData.avatar.startsWith('/') ? '' : '/'}${chatData.avatar}`;
+            console.log("URL do avatar do grupo convertida para:", avatarUrl);
+          } else {
+            avatarUrl = chatData.avatar;
+          }
+        }
+        
+        console.log(`Criando ${chatData.isGroup ? 'grupo' : 'chat'} com avatar:`, avatarUrl);
+        
+        // Inserir o chat com o avatar se for disponibilizado
         const [chatResult] = await connection.execute(
           "INSERT INTO chats (name, is_group, avatar) VALUES (?, ?, ?)",
-          [chatData.isGroup ? chatData.name || `Grupo (${chatData.participants.length})` : null, chatData.isGroup, null]
+          [chatData.isGroup ? chatData.name || `Grupo (${chatData.participants.length})` : null, chatData.isGroup, avatarUrl]
         )
 
         const chatId = chatResult.insertId
-
+        console.log(`${chatData.isGroup ? 'Grupo' : 'Chat'} criado com ID:`, chatId);
+        
         // Add creator as admin if it's a group
         await connection.execute(
           "INSERT INTO chat_participants (chat_id, user_id, is_admin) VALUES (?, ?, ?)",
@@ -3024,9 +3045,11 @@ app.post("/api/polls/:pollId/vote", authenticateJWT, async (req, res) => {
 // Endpoint para criar uma enquete
 app.post("/api/messages/poll", authenticateJWT, async (req, res) => {
   try {
+    console.log("Recebido pedido para criar enquete:", req.body);
     const { chatId, senderId, question, options } = req.body;
     
     if (!chatId || !senderId || !question || !options || !Array.isArray(options) || options.length < 2) {
+      console.error("Dados inválidos para criar enquete:", req.body);
       return res.status(400).json({ 
         success: false,
         message: "Dados inválidos para criar uma enquete. A enquete precisa de um título e pelo menos 2 opções."
@@ -3042,6 +3065,7 @@ app.post("/api/messages/poll", authenticateJWT, async (req, res) => {
     );
     
     if (chatResults.length === 0) {
+      console.error(`Chat ${chatId} não encontrado para criar enquete`);
       return res.status(404).json({ 
         success: false,
         message: "Chat não encontrado" 
@@ -3055,6 +3079,7 @@ app.post("/api/messages/poll", authenticateJWT, async (req, res) => {
     );
     
     if (memberResults.length === 0) {
+      console.error(`Usuário ${senderId} não tem permissão para criar enquete no chat ${chatId}`);
       return res.status(403).json({ 
         success: false,
         message: "Você não tem permissão para criar enquetes neste chat" 
@@ -3067,14 +3092,17 @@ app.post("/api/messages/poll", authenticateJWT, async (req, res) => {
     
     try {
       // Criar a enquete
+      console.log("Inserindo enquete no banco de dados");
       const [pollResult] = await connection.execute(
         "INSERT INTO polls (chat_id, creator_id, question, created_at) VALUES (?, ?, ?, NOW())",
         [chatId, senderId, question]
       );
       
       const pollId = pollResult.insertId;
+      console.log(`Enquete criada com ID ${pollId}`);
       
       // Adicionar as opções da enquete
+      console.log(`Adicionando ${options.length} opções para a enquete ${pollId}`);
       for (const option of options) {
         await connection.execute(
           "INSERT INTO poll_options (poll_id, text) VALUES (?, ?)",
@@ -3086,6 +3114,7 @@ app.post("/api/messages/poll", authenticateJWT, async (req, res) => {
       await connection.commit();
       connection.release();
       
+      console.log(`Enquete ${pollId} criada com sucesso`);
       res.json({
         success: true,
         message: "Enquete criada com sucesso",
@@ -3094,6 +3123,7 @@ app.post("/api/messages/poll", authenticateJWT, async (req, res) => {
       
     } catch (error) {
       // Reverter a transação em caso de erro
+      console.error("Erro na transação ao criar enquete:", error);
       await connection.rollback();
       connection.release();
       throw error;

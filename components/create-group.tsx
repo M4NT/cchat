@@ -100,7 +100,8 @@ export default function CreateGroup({ userId, onClose, onGroupCreated }: CreateG
     const groupData = {
       name: groupName.trim(),
       participants: selectedParticipants,
-      avatar: avatarUrl
+      avatar: avatarUrl,
+      isGroup: true
     }
 
     console.log("Criando grupo com dados:", groupData);

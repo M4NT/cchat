@@ -125,22 +125,28 @@ export default function ProfileEditor({ user, onClose, onProfileUpdate }: Profil
       const data = await response.json()
 
       if (response.ok) {
+        // Criar objeto de usuário atualizado
+        const updatedUser = {
+          ...user,
+          name,
+          email,
+          avatar: avatarUrl,
+        }
+
+        // Update local storage
+        localStorage.setItem("chatUser", JSON.stringify(updatedUser))
+        
+        // Chamar a função de callback com o usuário atualizado
+        // Isso vai disparar atualizações de socket no componente pai
+        onProfileUpdate(updatedUser)
+
         toast({
           title: "Perfil atualizado",
           description: "Seu perfil foi atualizado com sucesso",
         })
 
-        // Update local storage
-        const storedUser = JSON.parse(localStorage.getItem("chatUser") || "{}")
-        const updatedUser = {
-          ...storedUser,
-          name,
-          email,
-          avatar: avatarUrl,
-        }
-        localStorage.setItem("chatUser", JSON.stringify(updatedUser))
-
-        onProfileUpdate(updatedUser)
+        // Fechar o editor após atualização bem-sucedida
+        onClose()
       } else {
         toast({
           title: "Erro",

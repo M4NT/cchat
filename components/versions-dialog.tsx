@@ -21,6 +21,18 @@ export type Version = {
 
 const versions: Version[] = [
   {
+    version: "1.5.2",
+    date: "23/03/2025",
+    changes: [
+      "Correção do erro de carregamento de áudio no console",
+      "Melhoria na atualização em tempo real de fotos de perfil para todos usuários",
+      "Correção no upload de avatar durante a criação de grupos",
+      "Implementação de contadores visuais para mensagens não lidas",
+      "Adição de notificações no título da aba para mensagens não lidas",
+      "Melhorias no tratamento de erros e na experiência do usuário"
+    ]
+  },
+  {
     version: "1.5.1",
     date: "20/03/2025",
     changes: [
