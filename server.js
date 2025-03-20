@@ -30,7 +30,7 @@ app.use("/uploads/user_avatars", express.static(path.join(__dirname, "uploads", 
 // Diretórios para upload de arquivos
 const uploadsDir = path.join(__dirname, "uploads")
 const avatarsDir = path.join(uploadsDir, "avatars")
-const userAvatarsDir = path.join(uploadsDir, "user_avatars") // Nova pasta específica para avatares de usuários
+const userAvatarsDir = path.join(uploadsDir, "user_avatars") // Pasta específica para avatares de usuários
 const filesDir = path.join(uploadsDir, "files")
 const groupsDir = path.join(uploadsDir, "groups")
 const audioDir = path.join(uploadsDir, "audio")
@@ -38,7 +38,7 @@ const audioDir = path.join(uploadsDir, "audio")
 // Criar diretórios se não existirem
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir)
 if (!fs.existsSync(avatarsDir)) fs.mkdirSync(avatarsDir)
-if (!fs.existsSync(userAvatarsDir)) fs.mkdirSync(userAvatarsDir) // Criar pasta específica para avatares de usuários
+if (!fs.existsSync(userAvatarsDir)) fs.mkdirSync(userAvatarsDir)
 if (!fs.existsSync(filesDir)) fs.mkdirSync(filesDir)
 if (!fs.existsSync(groupsDir)) fs.mkdirSync(groupsDir)
 if (!fs.existsSync(audioDir)) fs.mkdirSync(audioDir)
@@ -46,12 +46,12 @@ if (!fs.existsSync(audioDir)) fs.mkdirSync(audioDir)
 // Set up multer storage
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const isUserAvatar = req.path.includes("users/avatar")
+    const isAvatar = req.path.includes("avatar")
     const isGroupAvatar = req.path.includes("groups/avatar")
     const isAudio = req.path.includes("audio")
     
-    if (isUserAvatar) {
-      cb(null, userAvatarsDir) // Usar a nova pasta para avatares de usuários
+    if (isAvatar) {
+      cb(null, avatarsDir)
     } else if (isGroupAvatar) {
       cb(null, groupsDir)
     } else if (isAudio) {
@@ -1362,21 +1362,46 @@ io.on("connection", (socket) => {
   // Update user profile
   socket.on("user:update", async (userData) => {
     try {
-      // Update user
+      console.log("Recebido evento user:update:", userData);
+      
+      // Garantir que o avatar seja uma URL absoluta
+      if (userData.avatar && !userData.avatar.startsWith('http')) {
+        const host = process.env.PUBLIC_HOST || 'localhost:3001';
+        const protocol = process.env.NODE_ENV === "production" ? "https" : "http";
+        userData.avatar = `${protocol}://${host}${userData.avatar.startsWith('/') ? '' : '/'}${userData.avatar}`;
+      }
+      
+      // Update user in database
       await pool.execute("UPDATE users SET name = ?, email = ?, avatar = ? WHERE id = ?", [
         userData.name,
         userData.email,
         userData.avatar,
         userData.id,
-      ])
-
-      // Notify all users about the updated user
-      socket.broadcast.emit("user:updated", userData)
+      ]);
+      
+      console.log("Usuário atualizado no banco de dados, enviando broadcast");
+      
+      // Notify ALL connected clients, including the sender
+      io.emit("user:updated", userData);
+      
+      // Broadcast to specific users in chats with this user
+      const [userChats] = await pool.execute(
+        "SELECT c.id FROM chats c JOIN chat_participants cp ON c.id = cp.chat_id WHERE cp.user_id = ?",
+        [userData.id]
+      );
+      
+      if (userChats && userChats.length > 0) {
+        console.log(`Notificando ${userChats.length} chats sobre a atualização do usuário`);
+        userChats.forEach(chat => {
+          socket.to(`chat:${chat.id}`).emit("user:updated", userData);
+        });
+      }
+      
     } catch (error) {
-      console.error("Error in user:update:", error)
-      socket.emit("error", { message: "Failed to update user profile" })
+      console.error("Error in user:update:", error);
+      socket.emit("error", { message: "Falha ao atualizar perfil de usuário" });
     }
-  })
+  });
 
   // Remove participant
   socket.on("chat:removeMember", async (data) => {
@@ -1870,8 +1895,22 @@ app.post("/api/users/avatar", upload.single("file"), async (req, res) => {
       // Continua a execução mesmo se não conseguir excluir o arquivo original
     }
 
-    const fileUrl = `${req.protocol}://${req.get("host")}/uploads/user_avatars/${optimizedFilename}`; // URL atualizado
+    // Obter o host da requisição
+    const host = process.env.PUBLIC_HOST || req.get("host");
+    const protocol = process.env.NODE_ENV === "production" ? "https" : req.protocol;
+    
+    // Criar URL absoluta para o avatar
+    const fileUrl = `${protocol}://${host}/uploads/user_avatars/${optimizedFilename}`;
     console.log(`URL do avatar gerada: ${fileUrl}`);
+
+    // Atualizar o avatar do usuário diretamente no banco de dados
+    try {
+      await pool.execute("UPDATE users SET avatar = ? WHERE id = ?", [fileUrl, userId]);
+      console.log(`Avatar do usuário ${userId} atualizado no banco de dados`);
+    } catch (dbError) {
+      console.error(`Erro ao atualizar avatar no banco de dados: ${dbError.message}`);
+      // Continua mesmo se houver erro no banco de dados, já que o URL ainda será retornado
+    }
 
     res.json({
       message: "Avatar enviado com sucesso",

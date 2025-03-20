@@ -87,6 +87,7 @@ export default function ProfileEditor({ user, onClose, onProfileUpdate }: Profil
         formData.append("file", newAvatar)
         formData.append("userId", user.id)
 
+        console.log("Enviando avatar para atualização...");
         const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/users/avatar`, {
           method: "POST",
           body: formData,
@@ -95,8 +96,16 @@ export default function ProfileEditor({ user, onClose, onProfileUpdate }: Profil
         const data = await response.json()
 
         if (data.url) {
+          console.log("Avatar atualizado com sucesso:", data.url);
           avatarUrl = data.url
         }
+      }
+
+      // Garantir que a URL do avatar seja absoluta
+      if (avatarUrl && !avatarUrl.startsWith('http')) {
+        const baseUrl = process.env.NEXT_PUBLIC_API_URL || window.location.origin;
+        avatarUrl = `${baseUrl}${avatarUrl.startsWith('/') ? '' : '/'}${avatarUrl}`;
+        console.log("URL do avatar convertida para absoluta:", avatarUrl);
       }
 
       // Update user profile
